@@ -22,6 +22,11 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,7 +45,10 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim7;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
@@ -50,6 +58,8 @@ TIM_HandleTypeDef htim7;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM7_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -60,27 +70,27 @@ static void MX_TIM7_Init(void);
 #define MOTOR_PIN_SET(signal, state) HAL_GPIO_WritePin((signal).port, (signal).pin, (state))
 #define MOTOR_NUM 3
 
-typedef enum {
-	MOTOR_DIR_FORWARD = -1,
-	MOTOR_DIR_BACKWARD = 1,
-} motor_dit_t;
-
 typedef struct {
 	GPIO_TypeDef *port;
 	uint16_t pin;
-} motor_signal_t;
+} signal_t;
+
+typedef enum {
+	MOTOR_DIR_FORWARD = -1,
+	MOTOR_DIR_BACKWARD = 1,
+} motor_dir_t;
 
 typedef struct {
-	motor_signal_t a1;
-	motor_signal_t a2;
-	motor_signal_t b1;
-	motor_signal_t b2;
+	signal_t a1;
+	signal_t a2;
+	signal_t b1;
+	signal_t b2;
 	int8_t state;
 } motor_t;
 
-motor_t motors[MOTOR_NUM];
+static motor_t motors[MOTOR_NUM];
 
-void drive_motor(motor_t *motor, const motor_dit_t dir) {
+void drive_motor(motor_t *motor, const motor_dir_t dir) {
 	switch(motor->state) {
 	    case 0: {
         MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
@@ -132,6 +142,50 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	}
 }
 
+#define ULTRA_NUM            1
+#define ULTRA_TRIG_TIM       htim1
+#define ULTRA_TO_SEC(delta)  (0.000002f*(delta))
+#define ULTRA_SPEED_OF_SOUND 343.f
+
+typedef struct {
+	signal_t echo;
+	uint32_t start;
+	uint32_t end;
+	uint32_t delta;
+	bool valid;
+	float dist;
+} ultrasonic_t;
+
+static ultrasonic_t ultras[ULTRA_NUM] = {0};
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	for(uint8_t i=0; i<ULTRA_NUM; i++) {
+		if(GPIO_Pin==ultras[i].echo.pin) {
+			if(HAL_GPIO_ReadPin(ultras[i].echo.port, ultras[i].echo.pin)) {
+				ultras[i].valid = false;
+				ultras[i].start = __HAL_TIM_GET_COUNTER(&ULTRA_TRIG_TIM);
+			} else {
+				ultras[i].end = __HAL_TIM_GET_COUNTER(&ULTRA_TRIG_TIM);
+				ultras[i].delta = ultras[i].end - ultras[i].start;
+				ultras[i].dist = ULTRA_TO_SEC(ultras[i].delta)*ULTRA_SPEED_OF_SOUND*0.5f;
+				ultras[i].valid = true;
+			}
+		}
+	}
+}
+
+static void logger(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+
+	char buffer[256];
+    const uint16_t len = vsprintf(buffer, format, args);
+
+    va_end(args);
+
+    HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, HAL_MAX_DELAY);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -164,6 +218,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM7_Init();
+  MX_TIM1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -171,31 +227,38 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  motors[0].a1 = (motor_signal_t){.port = M1_A1_GPIO_Port, .pin = M1_A1_Pin};
-  motors[0].a2 = (motor_signal_t){.port = M1_A2_GPIO_Port, .pin = M1_A2_Pin};
-  motors[0].b1 = (motor_signal_t){.port = M1_B1_GPIO_Port, .pin = M1_B1_Pin};
-  motors[0].b2 = (motor_signal_t){.port = M1_B2_GPIO_Port, .pin = M1_B2_Pin};
-
-  motors[1].a1 = (motor_signal_t){.port = M2_A1_GPIO_Port, .pin = M2_A1_Pin};
-  motors[1].a2 = (motor_signal_t){.port = M2_A2_GPIO_Port, .pin = M2_A2_Pin};
-  motors[1].b1 = (motor_signal_t){.port = M2_B1_GPIO_Port, .pin = M2_B1_Pin};
-  motors[1].b2 = (motor_signal_t){.port = M2_B2_GPIO_Port, .pin = M2_B2_Pin};
-
-  motors[2].a1 = (motor_signal_t){.port = M3_A1_GPIO_Port, .pin = M3_A1_Pin};
-  motors[2].a2 = (motor_signal_t){.port = M3_A2_GPIO_Port, .pin = M3_A2_Pin};
-  motors[2].b1 = (motor_signal_t){.port = M3_B1_GPIO_Port, .pin = M3_B1_Pin};
-  motors[2].b2 = (motor_signal_t){.port = M3_B2_GPIO_Port, .pin = M3_B2_Pin};
-
   HAL_Delay(6000);
+
+  motors[0].a1 = (signal_t){.port = M1_A1_GPIO_Port, .pin = M1_A1_Pin};
+  motors[0].a2 = (signal_t){.port = M1_A2_GPIO_Port, .pin = M1_A2_Pin};
+  motors[0].b1 = (signal_t){.port = M1_B1_GPIO_Port, .pin = M1_B1_Pin};
+  motors[0].b2 = (signal_t){.port = M1_B2_GPIO_Port, .pin = M1_B2_Pin};
+
+  motors[1].a1 = (signal_t){.port = M2_A1_GPIO_Port, .pin = M2_A1_Pin};
+  motors[1].a2 = (signal_t){.port = M2_A2_GPIO_Port, .pin = M2_A2_Pin};
+  motors[1].b1 = (signal_t){.port = M2_B1_GPIO_Port, .pin = M2_B1_Pin};
+  motors[1].b2 = (signal_t){.port = M2_B2_GPIO_Port, .pin = M2_B2_Pin};
+
+  motors[2].a1 = (signal_t){.port = M3_A1_GPIO_Port, .pin = M3_A1_Pin};
+  motors[2].a2 = (signal_t){.port = M3_A2_GPIO_Port, .pin = M3_A2_Pin};
+  motors[2].b1 = (signal_t){.port = M3_B1_GPIO_Port, .pin = M3_B1_Pin};
+  motors[2].b2 = (signal_t){.port = M3_B2_GPIO_Port, .pin = M3_B2_Pin};
+
+  ultras[0].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
+
   HAL_GPIO_WritePin(Mx_EN_GPIO_Port, Mx_EN_Pin, 1);
-  HAL_TIM_Base_Start_IT(&htim7);
+  HAL_TIM_Base_Start_IT(&htim7); // motors steps
+
+  HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
   while(1) {
-	/*for(uint8_t i=0; i<MOTOR_NUM; i++) {
-	  drive_motor(&motors[i], MOTOR_DIR_FORWARD);
-	}
 
-	HAL_Delay(1);*/
+	  if(ultras[0].valid) {
+		  logger("dist = %10.3fm\n\r", ultras[0].dist);
+		  HAL_Delay(100);
+	  }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -254,6 +317,76 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 160-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 50000;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 5;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.BreakFilter = 0;
+  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
+  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
+  sBreakDeadTimeConfig.Break2Filter = 0;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
   * @brief TIM7 Initialization Function
   * @param None
   * @retval None
@@ -292,6 +425,41 @@ static void MX_TIM7_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -303,8 +471,8 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
@@ -317,6 +485,12 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, M3_B1_Pin|M3_B2_Pin|M3_A2_Pin|M2_A1_Pin
                           |M2_A2_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : U1_ECHO_Pin */
+  GPIO_InitStruct.Pin = U1_ECHO_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(U1_ECHO_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : M2_B2_Pin M2_B1_Pin */
   GPIO_InitStruct.Pin = M2_B2_Pin|M2_B1_Pin;
@@ -342,6 +516,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
