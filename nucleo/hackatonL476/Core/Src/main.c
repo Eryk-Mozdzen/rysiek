@@ -40,6 +40,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim7;
 
 /* USER CODE BEGIN PV */
 
@@ -48,109 +49,89 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_TIM7_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void drive_motor1(int8_t dir)
-{
-  static int8_t state = 0;
-  switch(state) {
-    case 0:
-      HAL_GPIO_WritePin(M1_B2_GPIO_Port, M1_B2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_A2_GPIO_Port, M1_A2_Pin, GPIO_PIN_RESET);
 
-      HAL_GPIO_WritePin(M1_B1_GPIO_Port, M1_B1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_A1_GPIO_Port, M1_A1_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
+#define MOTOR_PIN_SET(signal, state) HAL_GPIO_WritePin((signal).port, (signal).pin, (state))
+#define MOTOR_NUM 3
 
-    case 1:
-      HAL_GPIO_WritePin(M1_A1_GPIO_Port, M1_A1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_A2_GPIO_Port, M1_B2_Pin, GPIO_PIN_RESET);
+typedef enum {
+	MOTOR_DIR_FORWARD = -1,
+	MOTOR_DIR_BACKWARD = 1,
+} motor_dit_t;
 
-      HAL_GPIO_WritePin(M1_A2_GPIO_Port, M1_A2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_B1_GPIO_Port, M1_B1_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
+typedef struct {
+	GPIO_TypeDef *port;
+	uint16_t pin;
+} motor_signal_t;
 
-    case 2:
-      HAL_GPIO_WritePin(M1_B1_GPIO_Port, M1_B1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_A1_GPIO_Port, M1_A1_Pin, GPIO_PIN_RESET);
+typedef struct {
+	motor_signal_t a1;
+	motor_signal_t a2;
+	motor_signal_t b1;
+	motor_signal_t b2;
+	int8_t state;
+} motor_t;
 
-      HAL_GPIO_WritePin(M1_B2_GPIO_Port, M1_B2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_A2_GPIO_Port, M1_A2_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
+motor_t motors[MOTOR_NUM];
 
-    case 3:
-      HAL_GPIO_WritePin(M1_A2_GPIO_Port, M1_A2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_B1_GPIO_Port, M1_B1_Pin, GPIO_PIN_RESET);
+void drive_motor(motor_t *motor, const motor_dit_t dir) {
+	switch(motor->state) {
+	    case 0: {
+        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a1, GPIO_PIN_SET);
+	      motor->state +=dir;
+	    } break;
+	    case 1: {
+        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b1, GPIO_PIN_SET);
+	      motor->state +=dir;
+	    } break;
+	    case 2: {
+        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a2, GPIO_PIN_SET);
+	    motor->state +=dir;
+      } break;
+	    case 3: {
+        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
+        MOTOR_PIN_SET(motor->b2, GPIO_PIN_SET);
+	      motor->state +=dir;
+      } break;
+	    default: {
+	      motor->state = 0;
+      } break;
+   }
 
-      HAL_GPIO_WritePin(M1_A1_GPIO_Port, M1_A1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M1_B2_GPIO_Port, M1_B2_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
+   if(motor->state > 3) {
+      motor->state = 0;
+    }
 
-    default:
-      state = 0;
-  }
-  if(state > 3)
-	  state = 0;
-  if(state < 0)
-	  state = 3;
+   if(motor->state < 0) {
+      motor->state = 3;
+    }
 }
 
-void drive_motor2(int8_t dir)
-{
-  static int8_t state = 0;
-  switch(state) {
-    case 0:
-      HAL_GPIO_WritePin(M2_B2_GPIO_Port, M2_B2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_A2_GPIO_Port, M2_A2_Pin, GPIO_PIN_RESET);
-
-      HAL_GPIO_WritePin(M2_B1_GPIO_Port, M2_B1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_A1_GPIO_Port, M2_A1_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
-
-    case 1:
-      HAL_GPIO_WritePin(M2_A1_GPIO_Port, M2_A1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_A2_GPIO_Port, M2_B2_Pin, GPIO_PIN_RESET);
-
-      HAL_GPIO_WritePin(M2_A2_GPIO_Port, M2_A2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_B1_GPIO_Port, M2_B1_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
-
-    case 2:
-      HAL_GPIO_WritePin(M2_B1_GPIO_Port, M2_B1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_A1_GPIO_Port, M2_A1_Pin, GPIO_PIN_RESET);
-
-      HAL_GPIO_WritePin(M2_B2_GPIO_Port, M2_B2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_A2_GPIO_Port, M2_A2_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
-
-    case 3:
-      HAL_GPIO_WritePin(M2_A2_GPIO_Port, M2_A2_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_B1_GPIO_Port, M2_B1_Pin, GPIO_PIN_RESET);
-
-      HAL_GPIO_WritePin(M2_A1_GPIO_Port, M2_A1_Pin, GPIO_PIN_RESET);
-      HAL_GPIO_WritePin(M2_B2_GPIO_Port, M2_B2_Pin, GPIO_PIN_SET);
-      state+=dir;
-      break;
-
-    default:
-      state = 0;
-  }
-  if(state > 3)
-	  state = 0;
-  if(state < 0)
-	  state = 3;
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if(htim==&htim7) {
+		for(uint8_t i=0; i<MOTOR_NUM; i++) {
+			drive_motor(&motors[i], MOTOR_DIR_FORWARD);
+		}
+	}
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -159,6 +140,7 @@ void drive_motor2(int8_t dir)
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -181,18 +163,39 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-  HAL_Delay(6000);
-  HAL_GPIO_WritePin(M12_EN_GPIO_Port, M12_EN_Pin, 1);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	while (1)
-	{
-		drive_motor1(-1);
-		drive_motor2(-1);
-		HAL_Delay(1);
+
+  motors[0].a1 = (motor_signal_t){.port = M1_A1_GPIO_Port, .pin = M1_A1_Pin};
+  motors[0].a2 = (motor_signal_t){.port = M1_A2_GPIO_Port, .pin = M1_A2_Pin};
+  motors[0].b1 = (motor_signal_t){.port = M1_B1_GPIO_Port, .pin = M1_B1_Pin};
+  motors[0].b2 = (motor_signal_t){.port = M1_B2_GPIO_Port, .pin = M1_B2_Pin};
+
+  motors[1].a1 = (motor_signal_t){.port = M2_A1_GPIO_Port, .pin = M2_A1_Pin};
+  motors[1].a2 = (motor_signal_t){.port = M2_A2_GPIO_Port, .pin = M2_A2_Pin};
+  motors[1].b1 = (motor_signal_t){.port = M2_B1_GPIO_Port, .pin = M2_B1_Pin};
+  motors[1].b2 = (motor_signal_t){.port = M2_B2_GPIO_Port, .pin = M2_B2_Pin};
+
+  motors[2].a1 = (motor_signal_t){.port = M3_A1_GPIO_Port, .pin = M3_A1_Pin};
+  motors[2].a2 = (motor_signal_t){.port = M3_A2_GPIO_Port, .pin = M3_A2_Pin};
+  motors[2].b1 = (motor_signal_t){.port = M3_B1_GPIO_Port, .pin = M3_B1_Pin};
+  motors[2].b2 = (motor_signal_t){.port = M3_B2_GPIO_Port, .pin = M3_B2_Pin};
+
+  HAL_Delay(6000);
+  HAL_GPIO_WritePin(Mx_EN_GPIO_Port, Mx_EN_Pin, 1);
+  HAL_TIM_Base_Start_IT(&htim7);
+
+  while(1) {
+	/*for(uint8_t i=0; i<MOTOR_NUM; i++) {
+	  drive_motor(&motors[i], MOTOR_DIR_FORWARD);
+	}
+
+	HAL_Delay(1);*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -251,6 +254,44 @@ void SystemClock_Config(void)
 }
 
 /**
+  * @brief TIM7 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM7_Init(void)
+{
+
+  /* USER CODE BEGIN TIM7_Init 0 */
+
+  /* USER CODE END TIM7_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM7_Init 1 */
+
+  /* USER CODE END TIM7_Init 1 */
+  htim7.Instance = TIM7;
+  htim7.Init.Prescaler = 80-1;
+  htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim7.Init.Period = 1000;
+  htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim7, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM7_Init 2 */
+
+  /* USER CODE END TIM7_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -270,10 +311,12 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, M2_B2_Pin|M2_B1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, M1_A1_Pin|M1_A2_Pin|M1_B1_Pin|M1_B2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, M3_A1_Pin|Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin
+                          |M1_B1_Pin|M1_B2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, M2_A1_Pin|M2_A2_Pin|M12_EN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, M3_B1_Pin|M3_B2_Pin|M3_A2_Pin|M2_A1_Pin
+                          |M2_A2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : M2_B2_Pin M2_B1_Pin */
   GPIO_InitStruct.Pin = M2_B2_Pin|M2_B1_Pin;
@@ -282,15 +325,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : M1_A1_Pin M1_A2_Pin M1_B1_Pin M1_B2_Pin */
-  GPIO_InitStruct.Pin = M1_A1_Pin|M1_A2_Pin|M1_B1_Pin|M1_B2_Pin;
+  /*Configure GPIO pins : M3_A1_Pin Mx_EN_Pin M1_A1_Pin M1_A2_Pin
+                           M1_B1_Pin M1_B2_Pin */
+  GPIO_InitStruct.Pin = M3_A1_Pin|Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin
+                          |M1_B1_Pin|M1_B2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : M2_A1_Pin M2_A2_Pin M12_EN_Pin */
-  GPIO_InitStruct.Pin = M2_A1_Pin|M2_A2_Pin|M12_EN_Pin;
+  /*Configure GPIO pins : M3_B1_Pin M3_B2_Pin M3_A2_Pin M2_A1_Pin
+                           M2_A2_Pin */
+  GPIO_InitStruct.Pin = M3_B1_Pin|M3_B2_Pin|M3_A2_Pin|M2_A1_Pin
+                          |M2_A2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

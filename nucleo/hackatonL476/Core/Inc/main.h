@@ -61,6 +61,14 @@ void Error_Handler(void);
 #define M2_B2_GPIO_Port GPIOA
 #define M2_B1_Pin GPIO_PIN_7
 #define M2_B1_GPIO_Port GPIOA
+#define M3_A1_Pin GPIO_PIN_4
+#define M3_A1_GPIO_Port GPIOC
+#define Mx_EN_Pin GPIO_PIN_5
+#define Mx_EN_GPIO_Port GPIOC
+#define M3_B1_Pin GPIO_PIN_13
+#define M3_B1_GPIO_Port GPIOB
+#define M3_B2_Pin GPIO_PIN_14
+#define M3_B2_GPIO_Port GPIOB
 #define M1_A1_Pin GPIO_PIN_6
 #define M1_A1_GPIO_Port GPIOC
 #define M1_A2_Pin GPIO_PIN_7
@@ -69,12 +77,12 @@ void Error_Handler(void);
 #define M1_B1_GPIO_Port GPIOC
 #define M1_B2_Pin GPIO_PIN_9
 #define M1_B2_GPIO_Port GPIOC
+#define M3_A2_Pin GPIO_PIN_3
+#define M3_A2_GPIO_Port GPIOB
 #define M2_A1_Pin GPIO_PIN_4
 #define M2_A1_GPIO_Port GPIOB
 #define M2_A2_Pin GPIO_PIN_5
 #define M2_A2_GPIO_Port GPIOB
-#define M12_EN_Pin GPIO_PIN_8
-#define M12_EN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

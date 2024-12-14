@@ -1854,11 +1854,7 @@ static HAL_StatusTypeDef RCC_SetFlashLatencyFromMSIRange(uint32_t msirange)
         /* MSI 8Mhz */
         latency = FLASH_LATENCY_1; /* 1WS */
       }
-      else
-      {
-        /* else MSI < 8Mhz default FLASH_LATENCY_0 0WS */
-        /* nothing to do */
-      }
+      /* else MSI < 8Mhz default FLASH_LATENCY_0 0WS */
     }
 #endif
   }

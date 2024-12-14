@@ -2,4 +2,5 @@
 Debug
 Release
 .settings
+.metadata
 *.launch
