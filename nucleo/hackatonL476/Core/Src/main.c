@@ -67,13 +67,15 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-#define MOTOR_PIN_SET(signal, state) HAL_GPIO_WritePin((signal).port, (signal).pin, (state))
-#define MOTOR_NUM 3
+#define SIGNAL_SET(signal, state) HAL_GPIO_WritePin((signal).port, (signal).pin, (state))
+#define SIGNAL_GET(signal)        HAL_GPIO_ReadPin((signal).port, (signal).pin)
 
 typedef struct {
 	GPIO_TypeDef *port;
 	uint16_t pin;
 } signal_t;
+
+#define MOTOR_NUM 3
 
 typedef enum {
 	MOTOR_DIR_FORWARD = -1,
@@ -93,32 +95,32 @@ static motor_t motors[MOTOR_NUM];
 void drive_motor(motor_t *motor, const motor_dir_t dir) {
 	switch(motor->state) {
 	    case 0: {
-        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a1, GPIO_PIN_SET);
-	      motor->state +=dir;
+	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a1, GPIO_PIN_SET);
+	    	motor->state +=dir;
 	    } break;
 	    case 1: {
-        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b1, GPIO_PIN_SET);
-	      motor->state +=dir;
+	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b1, GPIO_PIN_SET);
+	    	motor->state +=dir;
 	    } break;
 	    case 2: {
-        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a2, GPIO_PIN_SET);
-	    motor->state +=dir;
+	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a2, GPIO_PIN_SET);
+	    	motor->state +=dir;
       } break;
 	    case 3: {
-        MOTOR_PIN_SET(motor->a2, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->a1, GPIO_PIN_RESET);
-        MOTOR_PIN_SET(motor->b2, GPIO_PIN_SET);
-	      motor->state +=dir;
+	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
+	    	SIGNAL_SET(motor->b2, GPIO_PIN_SET);
+	    	motor->state +=dir;
       } break;
 	    default: {
 	      motor->state = 0;
@@ -186,6 +188,64 @@ static void logger(const char *format, ...) {
     HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, HAL_MAX_DELAY);
 }
 
+#define LOAD_CALIB_0KG 800000
+#define LOAD_CALIB_1KG 900000
+#define LOAD_TIMEOUT   10
+
+typedef struct {
+  signal_t dout;
+  signal_t sck;
+  int32_t data;
+  float load;
+} beam_t;
+
+void beam_init(beam_t *beam) {
+	//HAL_GPIO_WritePin(LOAD_RATE_GPIO_Port, LOAD_RATE_Pin, GPIO_PIN_RESET);
+
+	SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+	HAL_Delay(10);
+	SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+	HAL_Delay(10);
+}
+
+bool beam_read(beam_t *beam) {
+	beam->data = 0;
+
+	uint32_t start_time = HAL_GetTick();
+
+	while(SIGNAL_GET(beam->dout) == GPIO_PIN_SET) {
+		if((HAL_GetTick() - start_time)>LOAD_TIMEOUT) {
+			return false;
+		}
+	}
+
+	for(uint8_t i=0; i<24; i++) {
+		SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+		for(volatile uint32_t i=0; i<100; i++) {}
+		SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+		for(volatile uint32_t i=0; i<100; i++) {}
+
+		beam->data <<=1;
+
+		if(SIGNAL_GET(beam->dout) == GPIO_PIN_SET) {
+			beam->data |=0x01;
+		}
+	}
+
+	beam->data ^=0x800000;
+
+	SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+	for(volatile uint32_t i=0; i<100; i++) {}
+	SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+	for(volatile uint32_t i=0; i<100; i++) {}
+
+	beam->load = ((float)(beam->load - LOAD_CALIB_0KG))/((float)(LOAD_CALIB_1KG - LOAD_CALIB_0KG));
+
+	return true;
+}
+
+static beam_t beam = {0};
+
 /* USER CODE END 0 */
 
 /**
@@ -246,16 +306,26 @@ int main(void)
 
   ultras[0].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
 
+  //beam.dout = (signal_t){.port = , .pin = };
+  //beam.clk = (signal_t){.port = , .pin = };
+
   HAL_GPIO_WritePin(Mx_EN_GPIO_Port, Mx_EN_Pin, 1);
   HAL_TIM_Base_Start_IT(&htim7); // motors steps
 
   HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
+  beam_init(&beam);
+
   while(1) {
 
 	  if(ultras[0].valid) {
 		  logger("dist = %10.3fm\n\r", ultras[0].dist);
+		  HAL_Delay(100);
+	  }
+
+	  if(beam_read(&beam)) {
+		  logger("load = %10.3fkg\n\r", beam.load);
 		  HAL_Delay(100);
 	  }
 
