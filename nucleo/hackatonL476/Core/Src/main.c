@@ -99,6 +99,8 @@ typedef struct {
 	signal_t b2;
 	int8_t state;
 	motor_dir_t dir;
+	uint8_t counter;
+	uint8_t prescaler;
 } motor_t;
 
 static motor_t motors[MOTOR_NUM];
@@ -108,6 +110,12 @@ void drive_step(motor_t *motor) {
 	if(motor->dir==MOTOR_DIR_NO_MOTION) {
 		return;
 	}
+
+	motor->counter++;
+	if(motor->counter!=(motor->prescaler+1)) {
+		return;
+	}
+	motor->counter %=(motor->prescaler+1);
 
 	switch(motor->state) {
 	    case 0: {
@@ -510,6 +518,10 @@ int main(void)
 	  current_mass = beam.load;
   }
 
+  uint32_t head_redirect_time = HAL_GetTick() + 5000;
+  motors[0].prescaler = 49;
+  motors[0].dir = MOTOR_DIR_FORWARD;
+
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
@@ -523,7 +535,7 @@ int main(void)
 			  }
 		  } break;*/
 		  case STATE_WAITING_FOR_DATA: {
-				motors[0].dir = MOTOR_DIR_NO_MOTION;
+				//motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
 
@@ -546,25 +558,25 @@ int main(void)
 				  switch(human_position) {
 					  case '0': {
 						  	 stripe_set(255, 0, 0, 0);
-							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							//motors[0].dir = MOTOR_DIR_NO_MOTION;
 							motors[1].dir = MOTOR_DIR_NO_MOTION;
 							motors[2].dir = MOTOR_DIR_NO_MOTION;
 					  } break;
 					  case 'C': {
 						  stripe_set(0, 255, 255, 0);
-							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							//motors[0].dir = MOTOR_DIR_NO_MOTION;
 							motors[1].dir = MOTOR_DIR_FORWARD;
 							motors[2].dir = MOTOR_DIR_FORWARD;
 					  } break;
 					  case 'L': {
 						  stripe_set(0, 255, 0, 0);
-							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							//motors[0].dir = MOTOR_DIR_NO_MOTION;
 							motors[1].dir = MOTOR_DIR_FORWARD;
 							motors[2].dir = MOTOR_DIR_NO_MOTION;
 					  } break;
 					  case 'R': {
 						  stripe_set(0, 0, 255, 0);
-						    motors[0].dir = MOTOR_DIR_NO_MOTION;
+						    //motors[0].dir = MOTOR_DIR_NO_MOTION;
 							motors[1].dir = MOTOR_DIR_NO_MOTION;
 							motors[2].dir = MOTOR_DIR_FORWARD;
 					  } break;
@@ -592,7 +604,7 @@ int main(void)
 				heart_visable = true;
 				stripe_set(0, 255, 0, 0);
 				servos_set(30, 0);
-				motors[0].dir = MOTOR_DIR_NO_MOTION;
+				//motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
 				HAL_Delay(10000);
@@ -614,12 +626,22 @@ int main(void)
 		  HAL_Delay(100);
 	  }*/
 
+	  if(time>head_redirect_time) {
+		  head_redirect_time = time + 10000;
+
+		  if(motors[0].dir==MOTOR_DIR_FORWARD) {
+			  motors[0].dir = MOTOR_DIR_BACKWARD;
+		  } else if(motors[0].dir==MOTOR_DIR_BACKWARD) {
+			  motors[0].dir = MOTOR_DIR_FORWARD;
+		  }
+	  }
+
 	  if((time - servos_time)>=60) {
 		  servos_time = time;
 
 		  const float angle = sinf(2.f*3.1415f*0.2f*0.001f*time)*30.f;
 
-		  servos_set(angle, angle);
+		  servos_set(angle, -angle + 60);
 	  }
 
     /* USER CODE END WHILE */
@@ -887,7 +909,7 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 80-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 2000;
+  htim7.Init.Period = 1000;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
