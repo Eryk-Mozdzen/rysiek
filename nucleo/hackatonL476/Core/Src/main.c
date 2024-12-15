@@ -604,7 +604,7 @@ int main(void)
 				heart_visable = true;
 				stripe_set(0, 255, 0, 0);
 				servos_set(30, 0);
-				//motors[0].dir = MOTOR_DIR_NO_MOTION;
+				motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
 				HAL_Delay(10000);
