@@ -59,9 +59,26 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define U1_ECHO_Pin GPIO_PIN_0
-#define U1_ECHO_GPIO_Port GPIOC
-#define U1_ECHO_EXTI_IRQn EXTI0_IRQn
+#define MATRIX_COL3_Pin GPIO_PIN_13
+#define MATRIX_COL3_GPIO_Port GPIOC
+#define MATRIX_COL4_Pin GPIO_PIN_14
+#define MATRIX_COL4_GPIO_Port GPIOC
+#define MATRIX_ROW2_Pin GPIO_PIN_15
+#define MATRIX_ROW2_GPIO_Port GPIOC
+#define MATRIX_ROW3_Pin GPIO_PIN_0
+#define MATRIX_ROW3_GPIO_Port GPIOH
+#define MATRIX_ROW4_Pin GPIO_PIN_1
+#define MATRIX_ROW4_GPIO_Port GPIOH
+#define MATRIX_COL5_Pin GPIO_PIN_0
+#define MATRIX_COL5_GPIO_Port GPIOC
+#define MATRIX_ROW7_Pin GPIO_PIN_1
+#define MATRIX_ROW7_GPIO_Port GPIOC
+#define MATRIX_ROW5_Pin GPIO_PIN_2
+#define MATRIX_ROW5_GPIO_Port GPIOC
+#define MATRIX_ROW6_Pin GPIO_PIN_3
+#define MATRIX_ROW6_GPIO_Port GPIOC
+#define MATRIX_COL7_Pin GPIO_PIN_4
+#define MATRIX_COL7_GPIO_Port GPIOA
 #define M2_B2_Pin GPIO_PIN_6
 #define M2_B2_GPIO_Port GPIOA
 #define M2_B1_Pin GPIO_PIN_7
@@ -70,6 +87,8 @@ void Error_Handler(void);
 #define M3_A1_GPIO_Port GPIOC
 #define Mx_EN_Pin GPIO_PIN_5
 #define Mx_EN_GPIO_Port GPIOC
+#define MATRIX_COL6_Pin GPIO_PIN_0
+#define MATRIX_COL6_GPIO_Port GPIOB
 #define M3_B1_Pin GPIO_PIN_13
 #define M3_B1_GPIO_Port GPIOB
 #define M3_B2_Pin GPIO_PIN_14
@@ -84,6 +103,16 @@ void Error_Handler(void);
 #define M1_B2_GPIO_Port GPIOC
 #define U1_TRIG_Pin GPIO_PIN_8
 #define U1_TRIG_GPIO_Port GPIOA
+#define MATRIX_ROW1_Pin GPIO_PIN_15
+#define MATRIX_ROW1_GPIO_Port GPIOA
+#define MATRIX_COL0_Pin GPIO_PIN_10
+#define MATRIX_COL0_GPIO_Port GPIOC
+#define MATRIX_COL1_Pin GPIO_PIN_11
+#define MATRIX_COL1_GPIO_Port GPIOC
+#define MATRIX_COL2_Pin GPIO_PIN_12
+#define MATRIX_COL2_GPIO_Port GPIOC
+#define MATRIX_ROW0_Pin GPIO_PIN_2
+#define MATRIX_ROW0_GPIO_Port GPIOD
 #define M3_A2_Pin GPIO_PIN_3
 #define M3_A2_GPIO_Port GPIOB
 #define M2_A1_Pin GPIO_PIN_4

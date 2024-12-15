@@ -138,11 +138,62 @@ void drive_motor(motor_t *motor, const motor_dir_t dir) {
     }
 }
 
+
+#define MATRIX_COLS 8
+#define MATRIX_ROWS 8
+
+typedef struct {
+	signal_t cols[MATRIX_COLS];
+	signal_t rows[MATRIX_ROWS];
+	volatile uint8_t current_row;
+} matrix_t;
+
+const uint8_t heart[8][8] = {
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{0, 1, 1, 1, 1, 1, 1, 0},
+	{0, 0, 1, 1, 1, 1, 0, 0},
+	{0, 0, 0, 1, 1, 0, 0, 0},
+};
+
+void matrix_clear(matrix_t *matrix) {
+	for(uint8_t i=0; i<MATRIX_COLS; i++) {
+		SIGNAL_SET(matrix->cols[i], 0);
+	}
+	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
+		SIGNAL_SET(matrix->rows[i], 0);
+	}
+}
+
+void matrix_heart(matrix_t *matrix) {
+	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
+		SIGNAL_SET(matrix->rows[i], 1);
+	}
+	for(uint8_t i=0; i<MATRIX_COLS; i++) {
+		SIGNAL_SET(matrix->cols[i], 0);
+	}
+
+	matrix->current_row++;
+	matrix->current_row %=MATRIX_ROWS;
+
+	SIGNAL_SET(matrix->rows[matrix->current_row], 0);
+	for(uint8_t i=0; i<MATRIX_COLS; i++) {
+		SIGNAL_SET(matrix->cols[i], heart[matrix->current_row][i]);
+	}
+}
+
+static matrix_t matrix = {0};
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim==&htim7) {
 		for(uint8_t i=0; i<MOTOR_NUM; i++) {
 			drive_motor(&motors[i], MOTOR_DIR_FORWARD);
 		}
+
+		matrix_heart(&matrix);
 	}
 }
 
@@ -347,16 +398,34 @@ int main(void)
   motors[2].b1 = (signal_t){.port = M3_B1_GPIO_Port, .pin = M3_B1_Pin};
   motors[2].b2 = (signal_t){.port = M3_B2_GPIO_Port, .pin = M3_B2_Pin};
 
-  ultras[0].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
+  matrix.rows[1] = (signal_t){.port = MATRIX_ROW0_GPIO_Port, .pin = MATRIX_ROW0_Pin};
+  matrix.rows[0] = (signal_t){.port = MATRIX_COL1_GPIO_Port, .pin = MATRIX_COL1_Pin};
+  matrix.rows[7] = (signal_t){.port = MATRIX_COL2_GPIO_Port, .pin = MATRIX_COL2_Pin};
+  matrix.rows[2] = (signal_t){.port = MATRIX_COL3_GPIO_Port, .pin = MATRIX_COL3_Pin};
+  matrix.rows[4] = (signal_t){.port = MATRIX_COL4_GPIO_Port, .pin = MATRIX_COL4_Pin};
+  matrix.rows[3] = (signal_t){.port = MATRIX_COL5_GPIO_Port, .pin = MATRIX_COL5_Pin};
+  matrix.rows[5] = (signal_t){.port = MATRIX_COL6_GPIO_Port, .pin = MATRIX_COL6_Pin};
+  matrix.rows[6] = (signal_t){.port = MATRIX_COL7_GPIO_Port, .pin = MATRIX_COL7_Pin};
+
+  matrix.cols[1] = (signal_t){.port = MATRIX_COL0_GPIO_Port, .pin = MATRIX_COL0_Pin};
+  matrix.cols[3] = (signal_t){.port = MATRIX_ROW1_GPIO_Port, .pin = MATRIX_ROW1_Pin};
+  matrix.cols[0] = (signal_t){.port = MATRIX_ROW2_GPIO_Port, .pin = MATRIX_ROW2_Pin};
+  matrix.cols[4] = (signal_t){.port = MATRIX_ROW3_GPIO_Port, .pin = MATRIX_ROW3_Pin};
+  matrix.cols[6] = (signal_t){.port = MATRIX_ROW4_GPIO_Port, .pin = MATRIX_ROW4_Pin};
+  matrix.cols[5] = (signal_t){.port = MATRIX_ROW5_GPIO_Port, .pin = MATRIX_ROW5_Pin};
+  matrix.cols[2] = (signal_t){.port = MATRIX_ROW6_GPIO_Port, .pin = MATRIX_ROW6_Pin};
+  matrix.cols[7] = (signal_t){.port = MATRIX_ROW7_GPIO_Port, .pin = MATRIX_ROW7_Pin};
+
+  //ultras[0].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
 
   //beam.dout = (signal_t){.port = , .pin = };
   //beam.clk = (signal_t){.port = , .pin = };
 
   HAL_GPIO_WritePin(Mx_EN_GPIO_Port, Mx_EN_Pin, 1);
-  HAL_TIM_Base_Start_IT(&htim7); // motors steps
+  HAL_TIM_Base_Start_IT(&htim7); // motors steps & matrix
 
-  HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  //HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
+  //HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
   beam_init(&beam);
   stripe_init();
@@ -367,10 +436,10 @@ int main(void)
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
-	  if(ultras[0].valid) {
+	  /*if(ultras[0].valid) {
 		  logger("dist = %10.3fm\n\r", ultras[0].dist);
 		  HAL_Delay(100);
-	  }
+	  }*/
 
 	  if(beam_read(&beam)) {
 		  logger("load = %10.3fkg\n\r", beam.load);
@@ -669,54 +738,72 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, M2_B2_Pin|M2_B1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, MATRIX_COL3_Pin|MATRIX_COL4_Pin|MATRIX_ROW2_Pin|MATRIX_COL5_Pin
+                          |MATRIX_ROW7_Pin|MATRIX_ROW5_Pin|MATRIX_ROW6_Pin|M3_A1_Pin
+                          |Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin|M1_B1_Pin
+                          |M1_B2_Pin|MATRIX_COL0_Pin|MATRIX_COL1_Pin|MATRIX_COL2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, M3_A1_Pin|Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin
-                          |M1_B1_Pin|M1_B2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOH, MATRIX_ROW3_Pin|MATRIX_ROW4_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, M3_B1_Pin|M3_B2_Pin|M3_A2_Pin|M2_A1_Pin
-                          |M2_A2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, MATRIX_COL7_Pin|M2_B2_Pin|M2_B1_Pin|MATRIX_ROW1_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : U1_ECHO_Pin */
-  GPIO_InitStruct.Pin = U1_ECHO_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(U1_ECHO_GPIO_Port, &GPIO_InitStruct);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, MATRIX_COL6_Pin|M3_B1_Pin|M3_B2_Pin|M3_A2_Pin
+                          |M2_A1_Pin|M2_A2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : M2_B2_Pin M2_B1_Pin */
-  GPIO_InitStruct.Pin = M2_B2_Pin|M2_B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(MATRIX_ROW0_GPIO_Port, MATRIX_ROW0_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : M3_A1_Pin Mx_EN_Pin M1_A1_Pin M1_A2_Pin
-                           M1_B1_Pin M1_B2_Pin */
-  GPIO_InitStruct.Pin = M3_A1_Pin|Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin
-                          |M1_B1_Pin|M1_B2_Pin;
+  /*Configure GPIO pins : MATRIX_COL3_Pin MATRIX_COL4_Pin MATRIX_ROW2_Pin MATRIX_COL5_Pin
+                           MATRIX_ROW7_Pin MATRIX_ROW5_Pin MATRIX_ROW6_Pin M3_A1_Pin
+                           Mx_EN_Pin M1_A1_Pin M1_A2_Pin M1_B1_Pin
+                           M1_B2_Pin MATRIX_COL0_Pin MATRIX_COL1_Pin MATRIX_COL2_Pin */
+  GPIO_InitStruct.Pin = MATRIX_COL3_Pin|MATRIX_COL4_Pin|MATRIX_ROW2_Pin|MATRIX_COL5_Pin
+                          |MATRIX_ROW7_Pin|MATRIX_ROW5_Pin|MATRIX_ROW6_Pin|M3_A1_Pin
+                          |Mx_EN_Pin|M1_A1_Pin|M1_A2_Pin|M1_B1_Pin
+                          |M1_B2_Pin|MATRIX_COL0_Pin|MATRIX_COL1_Pin|MATRIX_COL2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : M3_B1_Pin M3_B2_Pin M3_A2_Pin M2_A1_Pin
-                           M2_A2_Pin */
-  GPIO_InitStruct.Pin = M3_B1_Pin|M3_B2_Pin|M3_A2_Pin|M2_A1_Pin
-                          |M2_A2_Pin;
+  /*Configure GPIO pins : MATRIX_ROW3_Pin MATRIX_ROW4_Pin */
+  GPIO_InitStruct.Pin = MATRIX_ROW3_Pin|MATRIX_ROW4_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : MATRIX_COL7_Pin M2_B2_Pin M2_B1_Pin MATRIX_ROW1_Pin */
+  GPIO_InitStruct.Pin = MATRIX_COL7_Pin|M2_B2_Pin|M2_B1_Pin|MATRIX_ROW1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : MATRIX_COL6_Pin M3_B1_Pin M3_B2_Pin M3_A2_Pin
+                           M2_A1_Pin M2_A2_Pin */
+  GPIO_InitStruct.Pin = MATRIX_COL6_Pin|M3_B1_Pin|M3_B2_Pin|M3_A2_Pin
+                          |M2_A1_Pin|M2_A2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  /*Configure GPIO pin : MATRIX_ROW0_Pin */
+  GPIO_InitStruct.Pin = MATRIX_ROW0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(MATRIX_ROW0_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
