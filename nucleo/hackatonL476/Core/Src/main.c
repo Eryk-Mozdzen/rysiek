@@ -52,6 +52,8 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
 
 UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -60,11 +62,13 @@ UART_HandleTypeDef huart2;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -190,11 +194,13 @@ void matrix_heart(matrix_t *matrix) {
 
 	SIGNAL_SET(matrix->rows[matrix->current_row], 0);
 	for(uint8_t i=0; i<MATRIX_COLS; i++) {
-		SIGNAL_SET(matrix->cols[i], heart[matrix->current_row][i]);
+		SIGNAL_SET(matrix->cols[i], heart[MATRIX_COLS - i - 1][matrix->current_row]);
 	}
 }
 
 static matrix_t matrix = {0};
+
+static volatile bool heart_visable = false;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim==&htim7) {
@@ -202,7 +208,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			drive_step(&motors[i]);
 		}
 
-		matrix_heart(&matrix);
+		if(heart_visable) {
+			matrix_heart(&matrix);
+		} else {
+			matrix_clear(&matrix);
+		}
 	}
 }
 
@@ -238,7 +248,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	}
 }
 
-static void logger(const char *format, ...) {
+/*static void logger(const char *format, ...) {
     va_list args;
     va_start(args, format);
 
@@ -248,7 +258,7 @@ static void logger(const char *format, ...) {
     va_end(args);
 
     HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, HAL_MAX_DELAY);
-}
+}*/
 
 #define LOAD_CALIB_0KG   8488400.f
 #define LOAD_CALIB_XKG   8433700.f
@@ -357,6 +367,25 @@ void servos_set(const float angle1, const float angle2) {
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, compare2);
 }
 
+static char human_position;
+static volatile bool human_position_ready = false;
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	if(huart==&huart3) {
+		human_position_ready = true;
+	}
+}
+
+typedef enum {
+	//STATE_HOMING,
+	STATE_WAITING_FOR_DATA,
+	//STATE_LOOKING,
+	STATE_FOLLOW,
+	//STATE_WAITING_FOR_PICKUP,
+	//STATE_GREATING,
+	//STATE_STOP,
+} state_t;
+
 /* USER CODE END 0 */
 
 /**
@@ -388,11 +417,13 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM7_Init();
   MX_TIM1_Init();
   MX_USART2_UART_Init();
   MX_TIM4_Init();
   MX_TIM2_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -454,17 +485,126 @@ int main(void)
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
+  HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
+
   beam_init(&beam);
   stripe_init();
 
   uint32_t servos_time = 0;
-  uint32_t rgbw_time = 0;
-  uint32_t counter = 0;
+  //uint32_t rgbw_time = 0;
+  //uint32_t counter = 0;
+
+  state_t state = STATE_WAITING_FOR_DATA;
+
+  uint32_t follow_last_msg = HAL_GetTick();
+
+  //motor_dir_t looking_dir = MOTOR_DIR_FORWARD;
+  //motors[2].dir = MOTOR_DIR_FORWARD;
+  //uint32_t looking_time = HAL_GetTick();
+
+  bool first_time = true;
+  uint32_t mass_time = 0;
+  float current_mass = 0;
+
+  if(beam_read(&beam)) {
+	  current_mass = beam.load;
+  }
 
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
-	  if(ultras[0].valid && ultras[1].valid) {
+	  switch(state) {
+		  /*ase STATE_HOMING: {
+			  if(SIGNAL_GET(motor_sw)) {
+				  looking_time = time - looking_time;
+				  motors[2].dir = MOTOR_DIR_BACKWARD;
+			  } else {
+				  motors[2].dir = MOTOR_DIR_FORWARD;
+			  }
+		  } break;*/
+		  case STATE_WAITING_FOR_DATA: {
+				motors[0].dir = MOTOR_DIR_NO_MOTION;
+				motors[1].dir = MOTOR_DIR_NO_MOTION;
+				motors[2].dir = MOTOR_DIR_NO_MOTION;
+
+				if(human_position_ready) {
+					//state = STATE_LOOKING;
+					state = STATE_FOLLOW;
+				} else {
+					HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
+				}
+		  } break;
+		  /*case STATE_LOOKING: {
+			  motors[0].dir = MOTOR_DIR_NO_MOTION;
+			  motors[1].dir = MOTOR_DIR_NO_MOTION;
+		  }*/
+		  case STATE_FOLLOW: {
+			  if(human_position_ready) {
+				  human_position_ready = false;
+				  follow_last_msg = HAL_GetTick();
+
+				  switch(human_position) {
+					  case '0': {
+						  	 stripe_set(255, 0, 0, 0);
+							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							motors[1].dir = MOTOR_DIR_NO_MOTION;
+							motors[2].dir = MOTOR_DIR_NO_MOTION;
+					  } break;
+					  case 'C': {
+						  stripe_set(0, 255, 255, 0);
+							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							motors[1].dir = MOTOR_DIR_FORWARD;
+							motors[2].dir = MOTOR_DIR_FORWARD;
+					  } break;
+					  case 'L': {
+						  stripe_set(0, 255, 0, 0);
+							motors[0].dir = MOTOR_DIR_NO_MOTION;
+							motors[1].dir = MOTOR_DIR_FORWARD;
+							motors[2].dir = MOTOR_DIR_NO_MOTION;
+					  } break;
+					  case 'R': {
+						  stripe_set(0, 0, 255, 0);
+						    motors[0].dir = MOTOR_DIR_NO_MOTION;
+							motors[1].dir = MOTOR_DIR_NO_MOTION;
+							motors[2].dir = MOTOR_DIR_FORWARD;
+					  } break;
+					  default: {
+						  // no action
+					  } break;
+				  }
+			  }
+
+			  if((time - follow_last_msg)>=3000) {
+				  state = STATE_WAITING_FOR_DATA;
+			  }
+		  }
+	  }
+
+	  if((time - mass_time)>=1000) {
+		  mass_time = time;
+
+		if(beam_read(&beam)) {
+			const float delta = beam.load - current_mass;
+			current_mass = beam.load;
+
+			if(delta<-0.100f && !first_time) {
+
+				heart_visable = true;
+				stripe_set(0, 255, 0, 0);
+				servos_set(30, 0);
+				motors[0].dir = MOTOR_DIR_NO_MOTION;
+				motors[1].dir = MOTOR_DIR_NO_MOTION;
+				motors[2].dir = MOTOR_DIR_NO_MOTION;
+				HAL_Delay(10000);
+				stripe_set(0, 0, 0, 0);
+				heart_visable = false;
+			}
+
+			first_time = false;
+		}
+	  }
+
+	  /*if(ultras[0].valid && ultras[1].valid) {
 		  logger("left %10.3fm      right %10.3fm\n\r", ultras[0].dist, ultras[1].dist);
 		  HAL_Delay(100);
 	  }
@@ -472,43 +612,7 @@ int main(void)
 	  if(beam_read(&beam)) {
 		  logger("load = %10.3fkg raw = %lu\n\r", beam.load, beam.data);
 		  HAL_Delay(100);
-	  }
-
-	  if((time - rgbw_time)>=1000) {
-			rgbw_time = time;
-
-			/*const uint8_t (*color1)[3] = &array[((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX)%ARRAY_SIZE];
-			const uint8_t (*color2)[3] = &array[(((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX) + 1)%ARRAY_SIZE];
-
-			const uint16_t fraq = (ARRAY_SIZE*counter)%ROBOT_READY_LED_COUNTER_MAX;
-
-			const uint8_t r = (((uint16_t)(*color2)[0])*fraq + ((uint16_t)(*color1)[0])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
-			const uint8_t g = (((uint16_t)(*color2)[1])*fraq + ((uint16_t)(*color1)[1])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
-			const uint8_t b = (((uint16_t)(*color2)[2])*fraq + ((uint16_t)(*color1)[2])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
-
-			stripe_set(r/4, g/4, b/4, 0);
-
-			counter++;
-			counter %=ROBOT_READY_LED_COUNTER_MAX;*/
-
-			switch(counter) {
-				case 0: {
-					stripe_set(255, 0, 0, 0);
-				} break;
-				case 1: {
-					stripe_set(0, 255, 0, 0);
-				} break;
-				case 2: {
-					stripe_set(0, 0, 255, 0);
-				} break;
-				case 3: {
-					stripe_set(0, 0, 0, 255);
-				} break;
-			}
-
-			counter++;
-			counter %=4;
-	  }
+	  }*/
 
 	  if((time - servos_time)>=60) {
 		  servos_time = time;
@@ -783,7 +887,7 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 80-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 1000;
+  htim7.Init.Period = 2000;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
   {
@@ -833,6 +937,57 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 12000;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
 
 }
 
@@ -902,7 +1057,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : U0_ECHO_Pin U1_ECHO_Pin */
   GPIO_InitStruct.Pin = U0_ECHO_Pin|U1_ECHO_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 

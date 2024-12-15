@@ -12,4 +12,4 @@ Skład Zespołu KoNaR_Bravo:
 https://github.com/ESP32Tutorials/ESP32-CAM-ESP-IDF-Live-Streaming-Web-Server?tab=readme-ov-file
 
 ### Hardware
-![](docs/nucleo9.png)
+![](docs/nucleo10.png)
