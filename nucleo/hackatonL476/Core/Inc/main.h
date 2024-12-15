@@ -90,6 +90,14 @@ void Error_Handler(void);
 #define M2_A1_GPIO_Port GPIOB
 #define M2_A2_Pin GPIO_PIN_5
 #define M2_A2_GPIO_Port GPIOB
+#define STRIPE_R_Pin GPIO_PIN_6
+#define STRIPE_R_GPIO_Port GPIOB
+#define STRIPE_G_Pin GPIO_PIN_7
+#define STRIPE_G_GPIO_Port GPIOB
+#define STRIPE_B_Pin GPIO_PIN_8
+#define STRIPE_B_GPIO_Port GPIOB
+#define STRIPE_W_Pin GPIO_PIN_9
+#define STRIPE_W_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

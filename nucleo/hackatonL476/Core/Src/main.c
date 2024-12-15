@@ -46,6 +46,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
 
 UART_HandleTypeDef huart2;
@@ -60,6 +61,7 @@ static void MX_GPIO_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -246,6 +248,46 @@ bool beam_read(beam_t *beam) {
 
 static beam_t beam = {0};
 
+#define STRIPE_TIM   htim4
+#define STRIPE_CHN_R TIM_CHANNEL_1
+#define STRIPE_CHN_G TIM_CHANNEL_4
+#define STRIPE_CHN_B TIM_CHANNEL_2
+#define STRIPE_CHN_W TIM_CHANNEL_3
+
+#define ARRAY_SIZE 8
+#define ROBOT_READY_LED_COUNTER_MAX		((uint16_t)240)
+
+const uint8_t array[ARRAY_SIZE][3] = {
+  	{  0,   0, 255},
+  	{127,   0, 255},
+  	{255,   0, 255},
+  	{127,   0, 255},
+  	{  0,   0, 255},
+  	{  0, 127, 255},
+  	{  0, 255, 255},
+  	{  0, 127, 255}
+};
+
+void stripe_init() {
+	HAL_TIM_Base_Start(&STRIPE_TIM);
+	HAL_TIM_PWM_Start(&STRIPE_TIM, STRIPE_CHN_R);
+	HAL_TIM_PWM_Start(&STRIPE_TIM, STRIPE_CHN_G);
+	HAL_TIM_PWM_Start(&STRIPE_TIM, STRIPE_CHN_B);
+	HAL_TIM_PWM_Start(&STRIPE_TIM, STRIPE_CHN_W);
+}
+
+void stripe_set(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
+	r = (r>250) ? 250 : r;
+	g = (g>250) ? 250 : g;
+	b = (b>250) ? 250 : b;
+	w = (w>250) ? 250 : w;
+
+	__HAL_TIM_SET_COMPARE(&STRIPE_TIM, STRIPE_CHN_R, r);
+	__HAL_TIM_SET_COMPARE(&STRIPE_TIM, STRIPE_CHN_G, g);
+	__HAL_TIM_SET_COMPARE(&STRIPE_TIM, STRIPE_CHN_B, b);
+	__HAL_TIM_SET_COMPARE(&STRIPE_TIM, STRIPE_CHN_W, w);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -280,6 +322,7 @@ int main(void)
   MX_TIM7_Init();
   MX_TIM1_Init();
   MX_USART2_UART_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -316,8 +359,13 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
   beam_init(&beam);
+  stripe_init();
+
+  uint32_t rgbw_time = 0;
+  uint32_t counter = 0;
 
   while(1) {
+	  const uint32_t time = HAL_GetTick();
 
 	  if(ultras[0].valid) {
 		  logger("dist = %10.3fm\n\r", ultras[0].dist);
@@ -327,6 +375,24 @@ int main(void)
 	  if(beam_read(&beam)) {
 		  logger("load = %10.3fkg\n\r", beam.load);
 		  HAL_Delay(100);
+	  }
+
+	  if((time - rgbw_time)>=1) {
+			rgbw_time = time;
+
+			const uint8_t (*color1)[3] = &array[((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX)%ARRAY_SIZE];
+			const uint8_t (*color2)[3] = &array[(((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX) + 1)%ARRAY_SIZE];
+
+			const uint16_t fraq = (ARRAY_SIZE*counter)%ROBOT_READY_LED_COUNTER_MAX;
+
+			const uint8_t r = (((uint16_t)(*color2)[0])*fraq + ((uint16_t)(*color1)[0])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
+			const uint8_t g = (((uint16_t)(*color2)[1])*fraq + ((uint16_t)(*color1)[1])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
+			const uint8_t b = (((uint16_t)(*color2)[2])*fraq + ((uint16_t)(*color1)[2])*(ROBOT_READY_LED_COUNTER_MAX - fraq))/ROBOT_READY_LED_COUNTER_MAX;
+
+			stripe_set(r/4, g/4, b/4, 0);
+
+			counter++;
+			counter %=ROBOT_READY_LED_COUNTER_MAX;
 	  }
 
     /* USER CODE END WHILE */
@@ -453,6 +519,67 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 320-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 250;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 
 }
 
