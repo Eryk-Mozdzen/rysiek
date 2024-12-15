@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -46,6 +47,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
 
@@ -62,6 +64,7 @@ static void MX_TIM7_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -80,6 +83,7 @@ typedef struct {
 #define MOTOR_NUM 3
 
 typedef enum {
+	MOTOR_DIR_NO_MOTION = 0,
 	MOTOR_DIR_FORWARD = -1,
 	MOTOR_DIR_BACKWARD = 1,
 } motor_dir_t;
@@ -90,39 +94,45 @@ typedef struct {
 	signal_t b1;
 	signal_t b2;
 	int8_t state;
+	motor_dir_t dir;
 } motor_t;
 
 static motor_t motors[MOTOR_NUM];
+static signal_t motor_sw;
 
-void drive_motor(motor_t *motor, const motor_dir_t dir) {
+void drive_step(motor_t *motor) {
+	if(motor->dir==MOTOR_DIR_NO_MOTION) {
+		return;
+	}
+
 	switch(motor->state) {
 	    case 0: {
 	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a1, GPIO_PIN_SET);
-	    	motor->state +=dir;
+	    	motor->state +=motor->dir;
 	    } break;
 	    case 1: {
 	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b1, GPIO_PIN_SET);
-	    	motor->state +=dir;
+	    	motor->state +=motor->dir;
 	    } break;
 	    case 2: {
 	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a2, GPIO_PIN_SET);
-	    	motor->state +=dir;
+	    	motor->state +=motor->dir;
       } break;
 	    case 3: {
 	    	SIGNAL_SET(motor->a2, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->a1, GPIO_PIN_RESET);
 	    	SIGNAL_SET(motor->b2, GPIO_PIN_SET);
-	    	motor->state +=dir;
+	    	motor->state +=motor->dir;
       } break;
 	    default: {
 	      motor->state = 0;
@@ -137,7 +147,6 @@ void drive_motor(motor_t *motor, const motor_dir_t dir) {
       motor->state = 3;
     }
 }
-
 
 #define MATRIX_COLS 8
 #define MATRIX_ROWS 8
@@ -190,14 +199,14 @@ static matrix_t matrix = {0};
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim==&htim7) {
 		for(uint8_t i=0; i<MOTOR_NUM; i++) {
-			drive_motor(&motors[i], MOTOR_DIR_FORWARD);
+			drive_step(&motors[i]);
 		}
 
 		matrix_heart(&matrix);
 	}
 }
 
-#define ULTRA_NUM            1
+#define ULTRA_NUM            2
 #define ULTRA_TRIG_TIM       htim1
 #define ULTRA_TO_SEC(delta)  (0.000002f*(delta))
 #define ULTRA_SPEED_OF_SOUND 343.f
@@ -241,13 +250,14 @@ static void logger(const char *format, ...) {
     HAL_UART_Transmit(&huart2, (uint8_t *)buffer, len, HAL_MAX_DELAY);
 }
 
-#define LOAD_CALIB_0KG 800000
-#define LOAD_CALIB_1KG 900000
-#define LOAD_TIMEOUT   10
+#define LOAD_CALIB_0KG   8488400.f
+#define LOAD_CALIB_XKG   8433700.f
+#define LOAD_CALIB_VAL   0.261
+#define LOAD_TIMEOUT     10
 
 typedef struct {
   signal_t dout;
-  signal_t sck;
+  signal_t clk;
   int32_t data;
   float load;
 } beam_t;
@@ -255,9 +265,9 @@ typedef struct {
 void beam_init(beam_t *beam) {
 	//HAL_GPIO_WritePin(LOAD_RATE_GPIO_Port, LOAD_RATE_Pin, GPIO_PIN_RESET);
 
-	SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+	SIGNAL_SET(beam->clk, GPIO_PIN_SET);
 	HAL_Delay(10);
-	SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+	SIGNAL_SET(beam->clk, GPIO_PIN_RESET);
 	HAL_Delay(10);
 }
 
@@ -273,9 +283,9 @@ bool beam_read(beam_t *beam) {
 	}
 
 	for(uint8_t i=0; i<24; i++) {
-		SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+		SIGNAL_SET(beam->clk, GPIO_PIN_SET);
 		for(volatile uint32_t i=0; i<100; i++) {}
-		SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+		SIGNAL_SET(beam->clk, GPIO_PIN_RESET);
 		for(volatile uint32_t i=0; i<100; i++) {}
 
 		beam->data <<=1;
@@ -287,12 +297,12 @@ bool beam_read(beam_t *beam) {
 
 	beam->data ^=0x800000;
 
-	SIGNAL_SET(beam->sck, GPIO_PIN_SET);
+	SIGNAL_SET(beam->clk, GPIO_PIN_SET);
 	for(volatile uint32_t i=0; i<100; i++) {}
-	SIGNAL_SET(beam->sck, GPIO_PIN_RESET);
+	SIGNAL_SET(beam->clk, GPIO_PIN_RESET);
 	for(volatile uint32_t i=0; i<100; i++) {}
 
-	beam->load = ((float)(beam->load - LOAD_CALIB_0KG))/((float)(LOAD_CALIB_1KG - LOAD_CALIB_0KG));
+	beam->load = LOAD_CALIB_VAL*((float)(beam->data) - LOAD_CALIB_0KG)/(LOAD_CALIB_XKG - LOAD_CALIB_0KG);
 
 	return true;
 }
@@ -339,6 +349,14 @@ void stripe_set(uint8_t r, uint8_t g, uint8_t b, uint8_t w) {
 	__HAL_TIM_SET_COMPARE(&STRIPE_TIM, STRIPE_CHN_W, w);
 }
 
+void servos_set(const float angle1, const float angle2) {
+	const uint32_t compare1 = ((angle1/90.f) + 1.f)*1000;
+	const uint32_t compare2 = ((angle2/90.f) + 1.f)*1000;
+
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, compare1);
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, compare2);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -374,6 +392,7 @@ int main(void)
   MX_TIM1_Init();
   MX_USART2_UART_Init();
   MX_TIM4_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -398,6 +417,8 @@ int main(void)
   motors[2].b1 = (signal_t){.port = M3_B1_GPIO_Port, .pin = M3_B1_Pin};
   motors[2].b2 = (signal_t){.port = M3_B2_GPIO_Port, .pin = M3_B2_Pin};
 
+  motor_sw = (signal_t){.port = SW_GPIO_Port, .pin = SW_Pin};
+
   matrix.rows[1] = (signal_t){.port = MATRIX_ROW0_GPIO_Port, .pin = MATRIX_ROW0_Pin};
   matrix.rows[0] = (signal_t){.port = MATRIX_COL1_GPIO_Port, .pin = MATRIX_COL1_Pin};
   matrix.rows[7] = (signal_t){.port = MATRIX_COL2_GPIO_Port, .pin = MATRIX_COL2_Pin};
@@ -416,40 +437,47 @@ int main(void)
   matrix.cols[2] = (signal_t){.port = MATRIX_ROW6_GPIO_Port, .pin = MATRIX_ROW6_Pin};
   matrix.cols[7] = (signal_t){.port = MATRIX_ROW7_GPIO_Port, .pin = MATRIX_ROW7_Pin};
 
-  //ultras[0].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
+  ultras[0].echo = (signal_t){.port = U0_ECHO_GPIO_Port, .pin = U0_ECHO_Pin};
+  ultras[1].echo = (signal_t){.port = U1_ECHO_GPIO_Port, .pin = U1_ECHO_Pin};
 
-  //beam.dout = (signal_t){.port = , .pin = };
-  //beam.clk = (signal_t){.port = , .pin = };
+  beam.clk  = (signal_t){.port = BEAM_CLK_GPIO_Port, .pin = BEAM_CLK_Pin};
+  beam.dout = (signal_t){.port = BEAM_DOUT_GPIO_Port, .pin = BEAM_DOUT_Pin};
 
   HAL_GPIO_WritePin(Mx_EN_GPIO_Port, Mx_EN_Pin, 1);
   HAL_TIM_Base_Start_IT(&htim7); // motors steps & matrix
 
-  //HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
-  //HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_Base_Start(&htim1); // ultrasonic trigger
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+
+  HAL_TIM_Base_Start(&htim2); // servos
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
   beam_init(&beam);
   stripe_init();
 
+  uint32_t servos_time = 0;
   uint32_t rgbw_time = 0;
   uint32_t counter = 0;
 
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
-	  /*if(ultras[0].valid) {
-		  logger("dist = %10.3fm\n\r", ultras[0].dist);
-		  HAL_Delay(100);
-	  }*/
-
-	  if(beam_read(&beam)) {
-		  logger("load = %10.3fkg\n\r", beam.load);
+	  if(ultras[0].valid && ultras[1].valid) {
+		  logger("left %10.3fm      right %10.3fm\n\r", ultras[0].dist, ultras[1].dist);
 		  HAL_Delay(100);
 	  }
 
-	  if((time - rgbw_time)>=1) {
+	  if(beam_read(&beam)) {
+		  logger("load = %10.3fkg raw = %lu\n\r", beam.load, beam.data);
+		  HAL_Delay(100);
+	  }
+
+	  if((time - rgbw_time)>=1000) {
 			rgbw_time = time;
 
-			const uint8_t (*color1)[3] = &array[((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX)%ARRAY_SIZE];
+			/*const uint8_t (*color1)[3] = &array[((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX)%ARRAY_SIZE];
 			const uint8_t (*color2)[3] = &array[(((ARRAY_SIZE*counter)/ROBOT_READY_LED_COUNTER_MAX) + 1)%ARRAY_SIZE];
 
 			const uint16_t fraq = (ARRAY_SIZE*counter)%ROBOT_READY_LED_COUNTER_MAX;
@@ -461,7 +489,33 @@ int main(void)
 			stripe_set(r/4, g/4, b/4, 0);
 
 			counter++;
-			counter %=ROBOT_READY_LED_COUNTER_MAX;
+			counter %=ROBOT_READY_LED_COUNTER_MAX;*/
+
+			switch(counter) {
+				case 0: {
+					stripe_set(255, 0, 0, 0);
+				} break;
+				case 1: {
+					stripe_set(0, 255, 0, 0);
+				} break;
+				case 2: {
+					stripe_set(0, 0, 255, 0);
+				} break;
+				case 3: {
+					stripe_set(0, 0, 0, 255);
+				} break;
+			}
+
+			counter++;
+			counter %=4;
+	  }
+
+	  if((time - servos_time)>=60) {
+		  servos_time = time;
+
+		  const float angle = sinf(2.f*3.1415f*0.2f*0.001f*time)*30.f;
+
+		  servos_set(angle, angle);
 	  }
 
     /* USER CODE END WHILE */
@@ -569,6 +623,10 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -588,6 +646,59 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 80-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 20000;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -756,8 +867,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, MATRIX_COL7_Pin|M2_B2_Pin|M2_B1_Pin|MATRIX_ROW1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, MATRIX_COL6_Pin|M3_B1_Pin|M3_B2_Pin|M3_A2_Pin
-                          |M2_A1_Pin|M2_A2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, MATRIX_COL6_Pin|BEAM_CLK_Pin|M3_B1_Pin|M3_B2_Pin
+                          |M3_A2_Pin|M2_A1_Pin|M2_A2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MATRIX_ROW0_GPIO_Port, MATRIX_ROW0_Pin, GPIO_PIN_RESET);
@@ -789,14 +900,32 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : MATRIX_COL6_Pin M3_B1_Pin M3_B2_Pin M3_A2_Pin
-                           M2_A1_Pin M2_A2_Pin */
-  GPIO_InitStruct.Pin = MATRIX_COL6_Pin|M3_B1_Pin|M3_B2_Pin|M3_A2_Pin
-                          |M2_A1_Pin|M2_A2_Pin;
+  /*Configure GPIO pins : U0_ECHO_Pin U1_ECHO_Pin */
+  GPIO_InitStruct.Pin = U0_ECHO_Pin|U1_ECHO_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : MATRIX_COL6_Pin BEAM_CLK_Pin M3_B1_Pin M3_B2_Pin
+                           M3_A2_Pin M2_A1_Pin M2_A2_Pin */
+  GPIO_InitStruct.Pin = MATRIX_COL6_Pin|BEAM_CLK_Pin|M3_B1_Pin|M3_B2_Pin
+                          |M3_A2_Pin|M2_A1_Pin|M2_A2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BEAM_DOUT_Pin */
+  GPIO_InitStruct.Pin = BEAM_DOUT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BEAM_DOUT_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SW_Pin */
+  GPIO_InitStruct.Pin = SW_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(SW_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : MATRIX_ROW0_Pin */
   GPIO_InitStruct.Pin = MATRIX_ROW0_Pin;
@@ -804,6 +933,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(MATRIX_ROW0_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
