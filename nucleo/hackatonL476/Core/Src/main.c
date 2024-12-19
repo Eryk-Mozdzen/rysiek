@@ -28,6 +28,8 @@
 #include <stdarg.h>
 #include <math.h>
 
+#include "protocol.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -158,6 +160,21 @@ void drive_step(motor_t *motor) {
    if(motor->state < 0) {
       motor->state = 3;
     }
+}
+
+void motor_vel(motor_t *motor, int8_t vel) {
+	vel = (vel>100) ? 100 : (vel<-100) ? -100 : vel;
+
+	if(vel>0) {
+		motor->dir = MOTOR_DIR_FORWARD;
+		motor->prescaler = (100 - vel)/10;
+	} else if(vel<0) {
+		motor->dir = MOTOR_DIR_BACKWARD;
+		motor->prescaler = (100 + vel)/10;
+	} else {
+		motor->dir = MOTOR_DIR_NO_MOTION;
+		motor->prescaler = 0;
+	}
 }
 
 #define MATRIX_COLS 8
@@ -375,24 +392,16 @@ void servos_set(const float angle1, const float angle2) {
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, compare2);
 }
 
-static char human_position;
-static volatile bool human_position_ready = false;
+#define UART_BUFFER_SIZE	4
+
+static uint8_t uart_buffer[UART_BUFFER_SIZE] = {0};
+static volatile bool uart_ready = false;
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if(huart==&huart3) {
-		human_position_ready = true;
+		uart_ready = true;
 	}
 }
-
-typedef enum {
-	//STATE_HOMING,
-	STATE_WAITING_FOR_DATA,
-	//STATE_LOOKING,
-	STATE_FOLLOW,
-	//STATE_WAITING_FOR_PICKUP,
-	//STATE_GREATING,
-	//STATE_STOP,
-} state_t;
 
 /* USER CODE END 0 */
 
@@ -493,103 +502,40 @@ int main(void)
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
-  HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
+  HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
 
   beam_init(&beam);
   stripe_init();
 
   uint32_t servos_time = 0;
-  //uint32_t rgbw_time = 0;
-  //uint32_t counter = 0;
 
-  state_t state = STATE_WAITING_FOR_DATA;
-
-  uint32_t follow_last_msg = HAL_GetTick();
-
-  //motor_dir_t looking_dir = MOTOR_DIR_FORWARD;
-  //motors[2].dir = MOTOR_DIR_FORWARD;
-  //uint32_t looking_time = HAL_GetTick();
+  uint32_t last_msg = HAL_GetTick();
 
   bool first_time = true;
   uint32_t mass_time = 0;
   float current_mass = 0;
+  protocol_t protocol = {0};
 
   if(beam_read(&beam)) {
 	  current_mass = beam.load;
   }
 
-  uint32_t head_redirect_time = HAL_GetTick() + 5000;
-  motors[0].prescaler = 49;
-  motors[0].dir = MOTOR_DIR_FORWARD;
-
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
-	  switch(state) {
-		  /*ase STATE_HOMING: {
-			  if(SIGNAL_GET(motor_sw)) {
-				  looking_time = time - looking_time;
-				  motors[2].dir = MOTOR_DIR_BACKWARD;
-			  } else {
-				  motors[2].dir = MOTOR_DIR_FORWARD;
-			  }
-		  } break;*/
-		  case STATE_WAITING_FOR_DATA: {
-				//motors[0].dir = MOTOR_DIR_NO_MOTION;
-				motors[1].dir = MOTOR_DIR_NO_MOTION;
-				motors[2].dir = MOTOR_DIR_NO_MOTION;
-
-				if(human_position_ready) {
-					//state = STATE_LOOKING;
-					state = STATE_FOLLOW;
-				} else {
-					HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
-				}
-		  } break;
-		  /*case STATE_LOOKING: {
-			  motors[0].dir = MOTOR_DIR_NO_MOTION;
-			  motors[1].dir = MOTOR_DIR_NO_MOTION;
-		  }*/
-		  case STATE_FOLLOW: {
-			  if(human_position_ready) {
-				  human_position_ready = false;
-				  follow_last_msg = HAL_GetTick();
-
-				  switch(human_position) {
-					  case '0': {
-						  	 stripe_set(255, 0, 0, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_NO_MOTION;
-							motors[2].dir = MOTOR_DIR_NO_MOTION;
-					  } break;
-					  case 'C': {
-						  stripe_set(0, 255, 255, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_FORWARD;
-							motors[2].dir = MOTOR_DIR_FORWARD;
-					  } break;
-					  case 'L': {
-						  stripe_set(0, 255, 0, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_FORWARD;
-							motors[2].dir = MOTOR_DIR_NO_MOTION;
-					  } break;
-					  case 'R': {
-						  stripe_set(0, 0, 255, 0);
-						    //motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_NO_MOTION;
-							motors[2].dir = MOTOR_DIR_FORWARD;
-					  } break;
-					  default: {
-						  // no action
-					  } break;
-				  }
-			  }
-
-			  if((time - follow_last_msg)>=3000) {
-				  state = STATE_WAITING_FOR_DATA;
+	  if(uart_ready) {
+		  uart_ready = false;
+		  for(uint8_t i=0; i<UART_BUFFER_SIZE; i++) {
+			  if(protocol_consume(&protocol, uart_buffer[i])) {
+				  motor_vel(&motors[1], protocol.frame.motor_left);
+				  motor_vel(&motors[2], protocol.frame.motor_right);
 			  }
 		  }
+	  }
+
+	  if((time - last_msg)>=100) {
+		  last_msg = time;
+		  HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
 	  }
 
 	  if((time - mass_time)>=1000) {
@@ -607,7 +553,7 @@ int main(void)
 				motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
-				HAL_Delay(10000);
+				HAL_Delay(2000);
 				stripe_set(0, 0, 0, 0);
 				heart_visable = false;
 			}
@@ -625,16 +571,6 @@ int main(void)
 		  logger("load = %10.3fkg raw = %lu\n\r", beam.load, beam.data);
 		  HAL_Delay(100);
 	  }*/
-
-	  if(time>head_redirect_time) {
-		  head_redirect_time = time + 10000;
-
-		  if(motors[0].dir==MOTOR_DIR_FORWARD) {
-			  motors[0].dir = MOTOR_DIR_BACKWARD;
-		  } else if(motors[0].dir==MOTOR_DIR_BACKWARD) {
-			  motors[0].dir = MOTOR_DIR_FORWARD;
-		  }
-	  }
 
 	  if((time - servos_time)>=60) {
 		  servos_time = time;
