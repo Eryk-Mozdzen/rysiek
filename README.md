@@ -13,3 +13,6 @@ https://github.com/ESP32Tutorials/ESP32-CAM-ESP-IDF-Live-Streaming-Web-Server?ta
 
 ### Hardware
 ![](docs/nucleo10.png)
+
+### Protocols
+![](docs/frame.drawio.svg)
