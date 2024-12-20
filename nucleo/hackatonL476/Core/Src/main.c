@@ -184,9 +184,43 @@ typedef struct {
 	signal_t cols[MATRIX_COLS];
 	signal_t rows[MATRIX_ROWS];
 	volatile uint8_t current_row;
+  uint8_t bitmap[8][8];
 } matrix_t;
 
-const uint8_t heart[8][8] = {
+uint8_t bitmap_empty[8][8] = {
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+uint8_t bitmap_full[8][8] = {
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+};
+
+uint8_t bitmap_smile[8][8] = {
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 1, 0, 0, 0, 0, 1, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 0, 1, 1, 1, 1, 0, 0},
+};
+
+uint8_t bitmap_heart[8][8] = {
 	{0, 1, 1, 0, 0, 1, 1, 0},
 	{1, 1, 1, 1, 1, 1, 1, 1},
 	{1, 1, 1, 1, 1, 1, 1, 1},
@@ -197,16 +231,18 @@ const uint8_t heart[8][8] = {
 	{0, 0, 0, 1, 1, 0, 0, 0},
 };
 
-void matrix_clear(matrix_t *matrix) {
-	for(uint8_t i=0; i<MATRIX_COLS; i++) {
-		SIGNAL_SET(matrix->cols[i], 0);
-	}
-	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
-		SIGNAL_SET(matrix->rows[i], 0);
-	}
-}
+uint8_t bitmap_konar[8][8] = {
+	{0, 0, 1, 1, 1, 0, 0, 0},
+	{0, 1, 1, 1, 0, 1, 1, 0},
+	{1, 1, 1, 1, 1, 0, 1, 1},
+	{1, 1, 0, 1, 1, 1, 0, 0},
+	{1, 1, 1, 1, 0, 1, 0, 1},
+	{0, 1, 0, 1, 0, 0, 1, 1},
+	{0, 0, 0, 1, 0, 0, 0, 0},
+	{0, 0, 0, 1, 0, 0, 0, 0},
+};
 
-void matrix_heart(matrix_t *matrix) {
+void matrix_step(matrix_t *matrix) {
 	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
 		SIGNAL_SET(matrix->rows[i], 1);
 	}
@@ -219,13 +255,11 @@ void matrix_heart(matrix_t *matrix) {
 
 	SIGNAL_SET(matrix->rows[matrix->current_row], 0);
 	for(uint8_t i=0; i<MATRIX_COLS; i++) {
-		SIGNAL_SET(matrix->cols[i], heart[MATRIX_COLS - i - 1][matrix->current_row]);
+		SIGNAL_SET(matrix->cols[i], matrix->bitmap[MATRIX_COLS - i - 1][matrix->current_row]);
 	}
 }
 
 static matrix_t matrix = {0};
-
-static volatile bool heart_visable = false;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim==&htim7) {
@@ -233,11 +267,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			drive_step(&motors[i]);
 		}
 
-		if(heart_visable) {
-			matrix_heart(&matrix);
-		} else {
-			matrix_clear(&matrix);
-		}
+		matrix_step(&matrix);
 	}
 }
 
@@ -392,7 +422,10 @@ void servos_set(const float angle1, const float angle2) {
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, compare2);
 }
 
-#define UART_BUFFER_SIZE	4
+static protocol_t protocol = {0};
+static protocol_frame_t frame = {0};
+
+#define UART_BUFFER_SIZE	16
 
 static uint8_t uart_buffer[UART_BUFFER_SIZE] = {0};
 static volatile bool uart_ready = false;
@@ -447,8 +480,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
-  HAL_Delay(6000);
 
   motors[0].a1 = (signal_t){.port = M1_A1_GPIO_Port, .pin = M1_A1_Pin};
   motors[0].a2 = (signal_t){.port = M1_A2_GPIO_Port, .pin = M1_A2_Pin};
@@ -514,7 +545,6 @@ int main(void)
   bool first_time = true;
   uint32_t mass_time = 0;
   float current_mass = 0;
-  protocol_t protocol = {0};
 
   if(beam_read(&beam)) {
 	  current_mass = beam.load;
@@ -527,15 +557,20 @@ int main(void)
 		  uart_ready = false;
 		  for(uint8_t i=0; i<UART_BUFFER_SIZE; i++) {
 			  if(protocol_consume(&protocol, uart_buffer[i])) {
-				  motor_vel(&motors[1], protocol.frame.motor_left);
-				  motor_vel(&motors[2], protocol.frame.motor_right);
+				  memcpy(&frame, &protocol.frame, sizeof(frame));
+				  last_msg = time;
+				  motor_vel(&motors[1], frame.motor_left);
+				  motor_vel(&motors[2], frame.motor_right);
 			  }
 		  }
+		  //HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
 	  }
 
-	  if((time - last_msg)>=100) {
+	  if((time - last_msg)>=5000) {
 		  last_msg = time;
 		  HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
+		  motors[1].dir = MOTOR_DIR_NO_MOTION;
+		  motors[2].dir = MOTOR_DIR_NO_MOTION;
 	  }
 
 	  if((time - mass_time)>=1000) {
@@ -545,17 +580,16 @@ int main(void)
 			const float delta = beam.load - current_mass;
 			current_mass = beam.load;
 
-			if(delta<-0.100f && !first_time) {
-
-				heart_visable = true;
+			if(delta<-0.010f && !first_time) {
+				memcpy(matrix.bitmap, bitmap_heart, 64);
 				stripe_set(0, 255, 0, 0);
 				servos_set(30, 0);
 				motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
-				HAL_Delay(2000);
+				HAL_Delay(3000);
 				stripe_set(0, 0, 0, 0);
-				heart_visable = false;
+				memcpy(matrix.bitmap, bitmap_empty, 64);
 			}
 
 			first_time = false;
@@ -914,7 +948,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 12000;
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;

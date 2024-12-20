@@ -38,13 +38,16 @@ bool protocol_consume(protocol_t *protocol, const uint8_t byte) {
     if(protocol->counter==6) {
         if(byte==MAGIC3) {
             protocol->buffer[protocol->counter] = byte;
-            protocol->counter++;
-            return false;
+            protocol->counter = 0;
+             const uint8_t correct =
+            		 protocol->buffer[0] +
+					 protocol->buffer[1] +
+					 protocol->buffer[3] +
+					 protocol->buffer[4] +
+					 protocol->buffer[5] +
+					 protocol->buffer[6];
+             return (protocol->frame.checksum==correct);
         }
-    }
-
-    if(protocol->counter==7) {
-        return (protocol->frame.checksum==checksum(protocol->buffer, protocol->counter));
     }
 
     protocol->counter = 0;
