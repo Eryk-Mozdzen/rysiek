@@ -28,6 +28,8 @@
 #include <stdarg.h>
 #include <math.h>
 
+#include "protocol.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -160,6 +162,21 @@ void drive_step(motor_t *motor) {
     }
 }
 
+void motor_vel(motor_t *motor, int8_t vel) {
+	vel = (vel>100) ? 100 : (vel<-100) ? -100 : vel;
+
+	if(vel>0) {
+		motor->dir = MOTOR_DIR_FORWARD;
+		motor->prescaler = (100 - vel)/10;
+	} else if(vel<0) {
+		motor->dir = MOTOR_DIR_BACKWARD;
+		motor->prescaler = (100 + vel)/10;
+	} else {
+		motor->dir = MOTOR_DIR_NO_MOTION;
+		motor->prescaler = 0;
+	}
+}
+
 #define MATRIX_COLS 8
 #define MATRIX_ROWS 8
 
@@ -167,9 +184,43 @@ typedef struct {
 	signal_t cols[MATRIX_COLS];
 	signal_t rows[MATRIX_ROWS];
 	volatile uint8_t current_row;
+  uint8_t bitmap[8][8];
 } matrix_t;
 
-const uint8_t heart[8][8] = {
+uint8_t bitmap_empty[8][8] = {
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+uint8_t bitmap_full[8][8] = {
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+	{1, 1, 1, 1, 1, 1, 1, 1},
+};
+
+uint8_t bitmap_smile[8][8] = {
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 1, 0, 0, 0, 0, 1, 0},
+	{0, 1, 1, 0, 0, 1, 1, 0},
+	{0, 0, 1, 1, 1, 1, 0, 0},
+};
+
+uint8_t bitmap_heart[8][8] = {
 	{0, 1, 1, 0, 0, 1, 1, 0},
 	{1, 1, 1, 1, 1, 1, 1, 1},
 	{1, 1, 1, 1, 1, 1, 1, 1},
@@ -180,16 +231,18 @@ const uint8_t heart[8][8] = {
 	{0, 0, 0, 1, 1, 0, 0, 0},
 };
 
-void matrix_clear(matrix_t *matrix) {
-	for(uint8_t i=0; i<MATRIX_COLS; i++) {
-		SIGNAL_SET(matrix->cols[i], 0);
-	}
-	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
-		SIGNAL_SET(matrix->rows[i], 0);
-	}
-}
+uint8_t bitmap_konar[8][8] = {
+	{0, 0, 1, 1, 1, 0, 0, 0},
+	{0, 1, 1, 1, 0, 1, 1, 0},
+	{1, 1, 1, 1, 1, 0, 1, 1},
+	{1, 1, 0, 1, 1, 1, 0, 0},
+	{1, 1, 1, 1, 0, 1, 0, 1},
+	{0, 1, 0, 1, 0, 0, 1, 1},
+	{0, 0, 0, 1, 0, 0, 0, 0},
+	{0, 0, 0, 1, 0, 0, 0, 0},
+};
 
-void matrix_heart(matrix_t *matrix) {
+void matrix_step(matrix_t *matrix) {
 	for(uint8_t i=0; i<MATRIX_ROWS; i++) {
 		SIGNAL_SET(matrix->rows[i], 1);
 	}
@@ -202,13 +255,11 @@ void matrix_heart(matrix_t *matrix) {
 
 	SIGNAL_SET(matrix->rows[matrix->current_row], 0);
 	for(uint8_t i=0; i<MATRIX_COLS; i++) {
-		SIGNAL_SET(matrix->cols[i], heart[MATRIX_COLS - i - 1][matrix->current_row]);
+		SIGNAL_SET(matrix->cols[i], matrix->bitmap[MATRIX_COLS - i - 1][matrix->current_row]);
 	}
 }
 
 static matrix_t matrix = {0};
-
-static volatile bool heart_visable = false;
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if(htim==&htim7) {
@@ -216,11 +267,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			drive_step(&motors[i]);
 		}
 
-		if(heart_visable) {
-			matrix_heart(&matrix);
-		} else {
-			matrix_clear(&matrix);
-		}
+		matrix_step(&matrix);
 	}
 }
 
@@ -333,18 +380,21 @@ static beam_t beam = {0};
 #define STRIPE_CHN_B TIM_CHANNEL_2
 #define STRIPE_CHN_W TIM_CHANNEL_3
 
-#define ARRAY_SIZE 8
-#define ROBOT_READY_LED_COUNTER_MAX		((uint16_t)240)
+#define ARRAY_SIZE 12
 
 const uint8_t array[ARRAY_SIZE][3] = {
   	{  0,   0, 255},
   	{127,   0, 255},
   	{255,   0, 255},
-  	{127,   0, 255},
-  	{  0,   0, 255},
-  	{  0, 127, 255},
+  	{255,   0, 127},
+	{255,   0,   0},
+	{255, 127,   0},
+	{255, 255,   0},
+	{127, 255,   0},
+	{  0, 255,   0},
+	{  0, 255, 127},
   	{  0, 255, 255},
-  	{  0, 127, 255}
+  	{  0, 127, 255},
 };
 
 void stripe_init() {
@@ -375,24 +425,19 @@ void servos_set(const float angle1, const float angle2) {
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, compare2);
 }
 
-static char human_position;
-static volatile bool human_position_ready = false;
+static protocol_t protocol = {0};
+static protocol_frame_t frame = {0};
+
+#define UART_BUFFER_SIZE	16
+
+static uint8_t uart_buffer[UART_BUFFER_SIZE] = {0};
+static volatile bool uart_ready = false;
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 	if(huart==&huart3) {
-		human_position_ready = true;
+		uart_ready = true;
 	}
 }
-
-typedef enum {
-	//STATE_HOMING,
-	STATE_WAITING_FOR_DATA,
-	//STATE_LOOKING,
-	STATE_FOLLOW,
-	//STATE_WAITING_FOR_PICKUP,
-	//STATE_GREATING,
-	//STATE_STOP,
-} state_t;
 
 /* USER CODE END 0 */
 
@@ -438,8 +483,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
-  HAL_Delay(6000);
 
   motors[0].a1 = (signal_t){.port = M1_A1_GPIO_Port, .pin = M1_A1_Pin};
   motors[0].a2 = (signal_t){.port = M1_A2_GPIO_Port, .pin = M1_A2_Pin};
@@ -493,22 +536,17 @@ int main(void)
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
-  HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
+  HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
 
   beam_init(&beam);
   stripe_init();
 
   uint32_t servos_time = 0;
-  //uint32_t rgbw_time = 0;
-  //uint32_t counter = 0;
 
-  state_t state = STATE_WAITING_FOR_DATA;
-
-  uint32_t follow_last_msg = HAL_GetTick();
-
-  //motor_dir_t looking_dir = MOTOR_DIR_FORWARD;
-  //motors[2].dir = MOTOR_DIR_FORWARD;
-  //uint32_t looking_time = HAL_GetTick();
+  uint32_t last_msg = HAL_GetTick();
+  uint32_t last_color = HAL_GetTick();
+  uint32_t last_color_inc = HAL_GetTick();
+  uint8_t color_i = 0;
 
   bool first_time = true;
   uint32_t mass_time = 0;
@@ -518,78 +556,44 @@ int main(void)
 	  current_mass = beam.load;
   }
 
-  uint32_t head_redirect_time = HAL_GetTick() + 5000;
-  motors[0].prescaler = 49;
-  motors[0].dir = MOTOR_DIR_FORWARD;
-
   while(1) {
 	  const uint32_t time = HAL_GetTick();
 
-	  switch(state) {
-		  /*ase STATE_HOMING: {
-			  if(SIGNAL_GET(motor_sw)) {
-				  looking_time = time - looking_time;
-				  motors[2].dir = MOTOR_DIR_BACKWARD;
-			  } else {
-				  motors[2].dir = MOTOR_DIR_FORWARD;
-			  }
-		  } break;*/
-		  case STATE_WAITING_FOR_DATA: {
-				//motors[0].dir = MOTOR_DIR_NO_MOTION;
-				motors[1].dir = MOTOR_DIR_NO_MOTION;
-				motors[2].dir = MOTOR_DIR_NO_MOTION;
+	  if(uart_ready) {
+		  uart_ready = false;
+		  for(uint8_t i=0; i<UART_BUFFER_SIZE; i++) {
+			  if(protocol_consume(&protocol, uart_buffer[i])) {
+				  memcpy(&frame, &protocol.frame, sizeof(frame));
+				  last_msg = time;
+				  motor_vel(&motors[1], frame.motor_left);
+				  motor_vel(&motors[2], frame.motor_right);
 
-				if(human_position_ready) {
-					//state = STATE_LOOKING;
-					state = STATE_FOLLOW;
-				} else {
-					HAL_UART_Receive_DMA(&huart3, (uint8_t *)&human_position, 1);
-				}
-		  } break;
-		  /*case STATE_LOOKING: {
-			  motors[0].dir = MOTOR_DIR_NO_MOTION;
-			  motors[1].dir = MOTOR_DIR_NO_MOTION;
-		  }*/
-		  case STATE_FOLLOW: {
-			  if(human_position_ready) {
-				  human_position_ready = false;
-				  follow_last_msg = HAL_GetTick();
-
-				  switch(human_position) {
-					  case '0': {
-						  	 stripe_set(255, 0, 0, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_NO_MOTION;
-							motors[2].dir = MOTOR_DIR_NO_MOTION;
+				  switch(frame.matrix) {
+					  case PROTOCOL_MATRIX_EMPTY: {
+						  memcpy(matrix.bitmap, bitmap_empty, 64);
 					  } break;
-					  case 'C': {
-						  stripe_set(0, 255, 255, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_FORWARD;
-							motors[2].dir = MOTOR_DIR_FORWARD;
+					  case PROTOCOL_MATRIX_FULL: {
+						  memcpy(matrix.bitmap, bitmap_full, 64);
 					  } break;
-					  case 'L': {
-						  stripe_set(0, 255, 0, 0);
-							//motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_FORWARD;
-							motors[2].dir = MOTOR_DIR_NO_MOTION;
+					  case PROTOCOL_MATRIX_HEART: {
+						  memcpy(matrix.bitmap, bitmap_heart, 64);
 					  } break;
-					  case 'R': {
-						  stripe_set(0, 0, 255, 0);
-						    //motors[0].dir = MOTOR_DIR_NO_MOTION;
-							motors[1].dir = MOTOR_DIR_NO_MOTION;
-							motors[2].dir = MOTOR_DIR_FORWARD;
+					  case PROTOCOL_MATRIX_SMILE: {
+						  memcpy(matrix.bitmap, bitmap_smile, 64);
 					  } break;
-					  default: {
-						  // no action
+					  case PROTOCOL_MATRIX_KONAR: {
+						  memcpy(matrix.bitmap, bitmap_konar, 64);
 					  } break;
 				  }
 			  }
-
-			  if((time - follow_last_msg)>=3000) {
-				  state = STATE_WAITING_FOR_DATA;
-			  }
 		  }
+	  }
+
+	  if((time - last_msg)>=5000) {
+		  last_msg = time;
+		  HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
+		  motors[1].dir = MOTOR_DIR_NO_MOTION;
+		  motors[2].dir = MOTOR_DIR_NO_MOTION;
 	  }
 
 	  if((time - mass_time)>=1000) {
@@ -599,21 +603,40 @@ int main(void)
 			const float delta = beam.load - current_mass;
 			current_mass = beam.load;
 
-			if(delta<-0.100f && !first_time) {
-
-				heart_visable = true;
+			if(delta<-0.010f && !first_time) {
+				memcpy(matrix.bitmap, bitmap_heart, 64);
 				stripe_set(0, 255, 0, 0);
 				servos_set(30, 0);
 				motors[0].dir = MOTOR_DIR_NO_MOTION;
 				motors[1].dir = MOTOR_DIR_NO_MOTION;
 				motors[2].dir = MOTOR_DIR_NO_MOTION;
-				HAL_Delay(10000);
+				HAL_Delay(3000);
 				stripe_set(0, 0, 0, 0);
-				heart_visable = false;
+				memcpy(matrix.bitmap, bitmap_empty, 64);
 			}
 
 			first_time = false;
 		}
+	  }
+
+	  if((time - last_color_inc)>=1000) {
+		  last_color_inc = time;
+
+		  color_i++;
+	  }
+
+	  if((time - last_color)>=10) {
+		  const uint8_t *color1 = array[(color_i+0)%ARRAY_SIZE];
+		  const uint8_t *color2 = array[(color_i+1)%ARRAY_SIZE];
+
+		  const float frac = (time - last_color_inc)/1000.f;
+		  const float r = color1[0]*(1 - frac) + color2[0]*frac;
+		  const float g = color1[1]*(1 - frac) + color2[1]*frac;
+		  const float b = color1[2]*(1 - frac) + color2[2]*frac;
+
+		  stripe_set(r, g, b, 0);
+
+		  last_color = time;
 	  }
 
 	  /*if(ultras[0].valid && ultras[1].valid) {
@@ -625,16 +648,6 @@ int main(void)
 		  logger("load = %10.3fkg raw = %lu\n\r", beam.load, beam.data);
 		  HAL_Delay(100);
 	  }*/
-
-	  if(time>head_redirect_time) {
-		  head_redirect_time = time + 10000;
-
-		  if(motors[0].dir==MOTOR_DIR_FORWARD) {
-			  motors[0].dir = MOTOR_DIR_BACKWARD;
-		  } else if(motors[0].dir==MOTOR_DIR_BACKWARD) {
-			  motors[0].dir = MOTOR_DIR_FORWARD;
-		  }
-	  }
 
 	  if((time - servos_time)>=60) {
 		  servos_time = time;
@@ -978,7 +991,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 12000;
+  huart3.Init.BaudRate = 9600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
