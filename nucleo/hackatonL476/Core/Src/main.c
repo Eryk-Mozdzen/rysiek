@@ -380,18 +380,21 @@ static beam_t beam = {0};
 #define STRIPE_CHN_B TIM_CHANNEL_2
 #define STRIPE_CHN_W TIM_CHANNEL_3
 
-#define ARRAY_SIZE 8
-#define ROBOT_READY_LED_COUNTER_MAX		((uint16_t)240)
+#define ARRAY_SIZE 12
 
 const uint8_t array[ARRAY_SIZE][3] = {
   	{  0,   0, 255},
   	{127,   0, 255},
   	{255,   0, 255},
-  	{127,   0, 255},
-  	{  0,   0, 255},
-  	{  0, 127, 255},
+  	{255,   0, 127},
+	{255,   0,   0},
+	{255, 127,   0},
+	{255, 255,   0},
+	{127, 255,   0},
+	{  0, 255,   0},
+	{  0, 255, 127},
   	{  0, 255, 255},
-  	{  0, 127, 255}
+  	{  0, 127, 255},
 };
 
 void stripe_init() {
@@ -541,6 +544,9 @@ int main(void)
   uint32_t servos_time = 0;
 
   uint32_t last_msg = HAL_GetTick();
+  uint32_t last_color = HAL_GetTick();
+  uint32_t last_color_inc = HAL_GetTick();
+  uint8_t color_i = 0;
 
   bool first_time = true;
   uint32_t mass_time = 0;
@@ -561,9 +567,26 @@ int main(void)
 				  last_msg = time;
 				  motor_vel(&motors[1], frame.motor_left);
 				  motor_vel(&motors[2], frame.motor_right);
+
+				  switch(frame.matrix) {
+					  case PROTOCOL_MATRIX_EMPTY: {
+						  memcpy(matrix.bitmap, bitmap_empty, 64);
+					  } break;
+					  case PROTOCOL_MATRIX_FULL: {
+						  memcpy(matrix.bitmap, bitmap_full, 64);
+					  } break;
+					  case PROTOCOL_MATRIX_HEART: {
+						  memcpy(matrix.bitmap, bitmap_heart, 64);
+					  } break;
+					  case PROTOCOL_MATRIX_SMILE: {
+						  memcpy(matrix.bitmap, bitmap_smile, 64);
+					  } break;
+					  case PROTOCOL_MATRIX_KONAR: {
+						  memcpy(matrix.bitmap, bitmap_konar, 64);
+					  } break;
+				  }
 			  }
 		  }
-		  //HAL_UART_Receive_DMA(&huart3, uart_buffer, UART_BUFFER_SIZE);
 	  }
 
 	  if((time - last_msg)>=5000) {
@@ -594,6 +617,26 @@ int main(void)
 
 			first_time = false;
 		}
+	  }
+
+	  if((time - last_color_inc)>=1000) {
+		  last_color_inc = time;
+
+		  color_i++;
+	  }
+
+	  if((time - last_color)>=10) {
+		  const uint8_t *color1 = array[(color_i+0)%ARRAY_SIZE];
+		  const uint8_t *color2 = array[(color_i+1)%ARRAY_SIZE];
+
+		  const float frac = (time - last_color_inc)/1000.f;
+		  const float r = color1[0]*(1 - frac) + color2[0]*frac;
+		  const float g = color1[1]*(1 - frac) + color2[1]*frac;
+		  const float b = color1[2]*(1 - frac) + color2[2]*frac;
+
+		  stripe_set(r, g, b, 0);
+
+		  last_color = time;
 	  }
 
 	  /*if(ultras[0].valid && ultras[1].valid) {
