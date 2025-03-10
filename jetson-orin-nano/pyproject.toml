@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "soft-high"
+version = "0.1.0"
+description = ""
+authors = ["dstronaut <tomaszo24@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+opencv-python = "^4.10.0.84"
+requests = "^2.32.3"
+mediapipe = "^0.10.20"
+matplotlib = "^3.10.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
