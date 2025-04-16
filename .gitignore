@@ -4,3 +4,6 @@ Release
 .settings
 .metadata
 *.launch
+
+*.aux
+*.log
