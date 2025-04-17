@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage{geometry}
+\usepackage{pdfoverlay}
+\usepackage[overlay, absolute]{textpos}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{polski}
+
+\geometry{
+    a4paper,
+    top=5.25cm,
+    bottom=8cm,
+    left=2.5cm,
+    right=2.5cm
+}
+
+\newcommand\PlaceText[3] {
+	\begin{textblock*}{10in}(#1, #2)
+		#3
+	\end{textblock*}
+}
+
+\textblockorigin{-5mm}{0mm}
+
+\begin{document}
+
+	\pagestyle{empty}
+	\pdfoverlaySetPDF{Oświadczenie do umocowania - przykład.pdf}
+
+	\pdfoverlayIncludeToPage{1}
+	\PlaceText{145mm}{37mm}{Wrocław, 17.04.2025}
+    \PlaceText{140mm}{77mm}{,,KoNaR\_Rysiek''}
+    \PlaceText{80mm}{91mm}{Eryka Możdżenia}
+    \PlaceText{145mm}{105mm}{,,Rysiek''}
+    \PlaceText{136mm}{159mm}{17.04.2025}
+
+\end{document}
