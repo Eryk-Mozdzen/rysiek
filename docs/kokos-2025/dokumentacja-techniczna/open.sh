@@ -1,3 +1,3 @@
 #!/bin/bash
 
-nohup firefox -new-tab main.pdf > /dev/null 2>&1 &
+nohup firefox -new-tab rysiek_dokumentacja_techniczna.pdf > /dev/null 2>&1 &

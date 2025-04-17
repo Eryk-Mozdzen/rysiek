@@ -90,13 +90,13 @@
 
     \pagebreak
     \section{Oprogramowanie mikrokontrolera}
-        W roli jednostki sterującej niskopoziomowymi funkcjonalościami robota wybrano mikrokontroler STM32L476
-        umieszczony na płytce rozwojowej \textit{Nucleo}. Mikrokontroler odpowiada za:
+        W roli jednostki sterującej niskopoziomowymi funkcjonalościami robota wybrano mikrokontroler STM32L476 umieszczony na płytce rozwojowej \textit{Nucleo}.
+        Oprogramowanie napisano w języku C z~użyciem bibliotek \textit{Hardware Abstraction Layer} udostępnionych przez producenta układu.
+        Mikrokontroler odpowiada za:
         \begin{itemize}
             \item odczyt czujników,
-            \item steroanie pozycją i prędkością napędów,
-            \item sterowanie kolorem diód w oczach i w podwoziu,
-            \item wyświetlanie obrazów na macierzy LED,
+            \item sterowanie pozycją i prędkością napędów,
+            \item sterowanie diodami w oczach, podwoziu i macierzy LED,
             \item komunikacja z sterownikiem nadrzędnym.
         \end{itemize}
 
@@ -144,5 +144,27 @@
 
     \pagebreak
     \section{Oprogramowanie mikrokomputera}
+        Oprogramowanie sterownika nadrzędnego korzysta z biblioteki OpenCV w języku Python.
+        Obraz z kamery RGB analizowany jest w celu rozpoznawania sylwetki człowieka oraz gestów rąk.
+        Skrypt wykorzystuje szybki algorytm, który działa na podstawie zestawu prostych cech tzw. cechy Haar'a.
+        Są to sekwencje przeskalowanych funkcji o kwadratowym kształcie, które stosujemy do rozpoznawania szególnych obszarów twarzy, takich jak usta, nos, oraz oczy.
+        Dodatkowo skrypt jest w stanie rozpoznawać w której cześci obrazu (po prawej, czy po lewej) rozpoznaje ludzką sylwetkę.
+
+        Następnie komunikuje się z Nucleo, który steruje silnikami i w ten sposób Rysiek jest podąża za daną osobą.
+        Aby uniknąć wykrywania wielu ludzi jednoczenie na obrazie oraz ciągłego zmieniania osoby za którą robot podąża,
+        zastosowaliśmy skrypt który wykorzystuje wzrost osoby, za którą Rysiek ma podążać.
+        W ten sposób pomimo wielu osób na obrazie kamery, robot nie gubi się w tłumie ludzi i podąża za odpowiednią osobą.
+
+        Równolegle następuje wielowątkowe rozpoznawanie gestów ręki (rys. \ref{wysoki_poziom}).
+        Wybrane gesty mają także dodatkową funkcję: pozwalają rozpocząć oraz zatrzymać algorytm śledzenia człowieka.
+        Baza danych gestów możliwych gestóœ dłoni została utworzona na podstawie kilkudziesięciu ujęć rąk przez dwie różne osoby.
+        Kiedy robot rozpozna gest ręki uruchamiana jest odpowiednia reakcja taka jak wyświetlenie odpowiedniego obrazu na macierzy LED umieszczonej na klatce piersiowej robota.
+
+        \begin{figure}[h]
+            \centering
+            \includegraphics[width=\textwidth]{figures/wysoki.png}
+            \caption{Schemat analizy danych z kamery}
+            \label{wysoki_poziom}
+        \end{figure}
 
 \end{document}
