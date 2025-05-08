@@ -565,6 +565,23 @@ int main(void)
 			  if(protocol_consume(&protocol, uart_buffer[i])) {
 				  memcpy(&frame, &protocol.frame, sizeof(frame));
 				  last_msg = time;
+
+				  if(frame.motor_left>0) {
+					  frame.motor_left = 90;
+				  }
+
+				  if(frame.motor_left<0) {
+					  frame.motor_left = -90;
+				  }
+
+				  if(frame.motor_right>0) {
+					  frame.motor_right = 90;
+				  }
+
+				  if(frame.motor_right<0) {
+					  frame.motor_right = -90;
+				  }
+
 				  motor_vel(&motors[1], frame.motor_left);
 				  motor_vel(&motors[2], frame.motor_right);
 
